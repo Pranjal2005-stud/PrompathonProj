@@ -7,10 +7,15 @@ __pycache__/
 *.egg-info/
 dist/
 build/
-.env
 venv/
 env/
 .venv/
+
+# Environment variables — NEVER commit these
+.env
+**/.env
+backend/.env
+frontend/.env
 
 # Model files (too large for git)
 backend/models/*.pkl
@@ -18,7 +23,6 @@ backend/models/*.pkl
 # Node
 frontend/node_modules/
 frontend/dist/
-frontend/.env
 
 # OS
 .DS_Store

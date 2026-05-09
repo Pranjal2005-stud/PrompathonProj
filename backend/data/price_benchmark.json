@@ -1,0 +1,6 @@
+{
+  "AHU Filter": { "min": 12000, "max": 15000 },
+  "VFD - 15kW": { "min": 45000, "max": 55000 },
+  "Temperature Sensor": { "min": 4000, "max": 6000 },
+  "Chiller Maintenance": { "min": 150000, "max": 200000 }
+}

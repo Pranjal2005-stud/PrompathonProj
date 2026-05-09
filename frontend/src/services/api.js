@@ -1,11 +1,27 @@
 import axios from "axios";
 
-const BASE_URL = "http://localhost:8000";
+const BASE = "http://localhost:8000";
+
+const api = axios.create({ baseURL: BASE });
 
 export const uploadInvoices = (file) => {
-  const formData = new FormData();
-  formData.append("file", file);
-  return axios.post(`${BASE_URL}/predict`, formData, {
-    headers: { "Content-Type": "multipart/form-data" },
-  });
+  const fd = new FormData();
+  fd.append("file", file);
+  return api.post("/predict", fd, { headers: { "Content-Type": "multipart/form-data" } });
+};
+
+export const getSummary = (file) => {
+  const fd = new FormData();
+  fd.append("file", file);
+  return api.post("/summary", fd, { headers: { "Content-Type": "multipart/form-data" } });
+};
+
+export const askCopilot = async (question, context) => {
+  const res = await api.post("/copilot", { question, context });
+  return res.data;
+};
+
+export const getAIExplanation = async (invoice) => {
+  const res = await api.post("/explain", { invoice });
+  return res.data;
 };
