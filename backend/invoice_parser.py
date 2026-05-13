@@ -1,108 +1,96 @@
 """
 invoice_parser.py
 -----------------
-Entry point for all invoice uploads.
-Handles CSV, PDF, and plain text.
-Returns a canonical DataFrame ready for feature engineering.
+Parses uploaded CSV/Excel files into a canonical DataFrame.
+Handles column aliasing, type coercion, and schema normalization.
 """
 
 import io
 import pandas as pd
-from schema_normalizer import to_canonical
-from llm_extractor import extract_with_llm
+from fastapi import UploadFile
+from canonical_schema import CANONICAL_FIELDS
+
+# Column aliases — maps common alternative names to canonical names
+ALIASES = {
+    "id":                     "invoice_id",
+    "invoice_no":             "invoice_id",
+    "invoice_number":         "invoice_id",
+    "inv_id":                 "invoice_id",
+    "vendor":                 "vendor_name",
+    "supplier_name":          "vendor_name",
+    "supplier":               "vendor_name",
+    "vendor_code":            "vendor_id",
+    "supplier_id":            "vendor_id",
+    "amount":                 "invoice_amount",
+    "total_amount":           "invoice_amount",
+    "invoice_total":          "invoice_amount",
+    "po_amount":              "approved_amount_po",
+    "po_approved_amount":     "approved_amount_po",
+    "approved_amount":        "approved_amount_po",
+    "payment":                "paid_amount",
+    "amount_paid":            "paid_amount",
+    "qty":                    "quantity",
+    "invoice_qty":            "quantity",
+    "po_qty":                 "approved_quantity_po",
+    "approved_qty":           "approved_quantity_po",
+    "date":                   "invoice_date",
+    "inv_date":               "invoice_date",
+    "price":                  "unit_price",
+    "rate":                   "unit_price",
+    "item":                   "item_name",
+    "description":            "item_name",
+    "product":                "item_name",
+}
 
 
-def _parse_csv(file_bytes: bytes) -> pd.DataFrame:
-    """Parse CSV bytes into a normalized canonical DataFrame."""
-    try:
-        df = pd.read_csv(io.BytesIO(file_bytes))
-        return to_canonical(df)
-    except Exception as e:
-        raise ValueError(f"CSV parse failed: {e}")
+def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Lowercase + strip column names, then apply aliases."""
+    df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
+    df = df.rename(columns={k: v for k, v in ALIASES.items() if k in df.columns})
+    return df
 
 
-def _parse_pdf(file_bytes: bytes) -> pd.DataFrame:
-    """
-    Extract text from PDF using pdfplumber, then try LLM extraction.
-    Falls back to regex if LLM fails.
-    """
-    text = ""
-    try:
-        import pdfplumber
-        with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-            for page in pdf.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    text += page_text + "\n"
-    except ImportError:
-        # pdfplumber not installed — decode raw bytes as text
-        text = file_bytes.decode("utf-8", errors="ignore")
-    except Exception as e:
-        print(f"PDF extraction warning: {e}")
-        text = file_bytes.decode("utf-8", errors="ignore")
-
-    return _parse_text(text)
+def _coerce_types(df: pd.DataFrame) -> pd.DataFrame:
+    """Coerce each canonical field to its declared type."""
+    for field, (typ, default) in CANONICAL_FIELDS.items():
+        if field not in df.columns:
+            df[field] = default
+            continue
+        if typ == float:
+            df[field] = pd.to_numeric(df[field], errors="coerce").fillna(default or 0.0)
+        elif typ == str:
+            df[field] = df[field].astype(str).replace("nan", None).replace("None", None)
+    return df
 
 
-def _parse_text(text: str) -> pd.DataFrame:
-    """Try LLM extraction first, then regex fallback."""
-    # LLM extraction
-    try:
-        llm_data = extract_with_llm(text)
-        if isinstance(llm_data, dict) and llm_data:
-            df = pd.DataFrame([llm_data])
-            return to_canonical(df)
-    except Exception as e:
-        print(f"LLM extraction failed: {e}")
+async def parse_input(file: UploadFile) -> pd.DataFrame:
+    """Read uploaded file (CSV or Excel) and return normalized DataFrame."""
+    content = await file.read()
+    name = (file.filename or "").lower()
 
-    # Regex fallback
-    print("Using regex fallback extraction")
-    return _regex_extract(text)
+    if name.endswith((".xlsx", ".xls")):
+        df = pd.read_excel(io.BytesIO(content))
+    else:
+        # Try common encodings
+        for enc in ("utf-8", "latin-1", "cp1252"):
+            try:
+                df = pd.read_csv(io.BytesIO(content), encoding=enc)
+                break
+            except UnicodeDecodeError:
+                continue
+        else:
+            df = pd.read_csv(io.BytesIO(content), encoding="utf-8", errors="replace")
 
+    df = _normalize_columns(df)
 
-def _regex_extract(text: str) -> pd.DataFrame:
-    """
-    Best-effort regex extraction from unstructured text.
-    Returns a single-row canonical DataFrame.
-    """
-    import re
-    data = {}
+    # Track which canonical columns were present before filling defaults
+    present_cols = set(df.columns) & set(CANONICAL_FIELDS.keys())
+    df.attrs["present_cols"] = present_cols
 
-    patterns = {
-        "vendor_name":        r"(?:vendor|supplier|billed\s*by|from)[:\s]+([A-Za-z0-9_&. ]+)",
-        "invoice_id":         r"(?:invoice\s*(?:no|number|id)|bill\s*no)[:\s#]+([A-Za-z0-9\-/]+)",
-        "invoice_amount":     r"(?:total|amount|payable|invoice\s*amount)[:\s₹$]*([0-9,]+(?:\.[0-9]+)?)",
-        "approved_amount_po": r"(?:po\s*(?:amount|value)|purchase\s*order)[:\s₹$]*([0-9,]+(?:\.[0-9]+)?)",
-        "paid_amount":        r"(?:paid|payment\s*made)[:\s₹$]*([0-9,]+(?:\.[0-9]+)?)",
-        "quantity":           r"(?:qty|quantity|units)[:\s]*([0-9]+(?:\.[0-9]+)?)",
-        "invoice_date":       r"(\d{4}-\d{2}-\d{2}|\d{2}[/-]\d{2}[/-]\d{4}|\d{2}\s+\w+\s+\d{4})",
-        "item_name":          r"(?:item|description|particulars|goods|service)[:\s]+([A-Za-z0-9_ ]+)",
-    }
+    df = _coerce_types(df)
 
-    for field, pattern in patterns.items():
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            val = match.group(1).strip().replace(",", "")
-            data[field] = val
+    # Ensure invoice_id exists
+    if "invoice_id" not in df.columns or df["invoice_id"].isna().all():
+        df["invoice_id"] = [f"INV-{i+1:04d}" for i in range(len(df))]
 
-    df = pd.DataFrame([data]) if data else pd.DataFrame([{}])
-    return to_canonical(df)
-
-
-def parse_input(file) -> pd.DataFrame:
-    """
-    Main entry point. Accepts FastAPI UploadFile.
-    Returns canonical DataFrame.
-    """
-    filename = (file.filename or "").lower()
-    raw = file.file.read()
-
-    if filename.endswith(".csv"):
-        return _parse_csv(raw)
-
-    if filename.endswith(".pdf"):
-        return _parse_pdf(raw)
-
-    # Plain text / unknown format
-    text = raw.decode("utf-8", errors="ignore")
-    return _parse_text(text)
+    return df

@@ -8,7 +8,7 @@ A production-grade invoice fraud detection system powered by IsolationForest ML 
 
 | Layer    | Tech                                      |
 |----------|-------------------------------------------|
-| Frontend | React 19, Vite, TailwindCSS v4, Recharts, Framer Motion, Lucide |
+| Frontend | Next.js 15, React 19, TailwindCSS, ECharts, Framer Motion, Lucide, Zustand |
 | Backend  | FastAPI, Pandas, Scikit-learn, Uvicorn    |
 | ML Model | IsolationForest (anomaly detection)       |
 
@@ -42,12 +42,12 @@ Backend runs on → `http://localhost:8000`
 ### 3. Frontend Setup
 
 ```bash
-cd frontend
+cd nextjs-frontend
 npm install
 npm run dev
 ```
 
-Frontend runs on → `http://localhost:5173`
+Frontend runs on → `http://localhost:3000`
 
 ---
 
@@ -64,13 +64,14 @@ invoice-fraud-system/
 │   ├── model_loader.py         # Loads .pkl model files
 │   ├── utils.py                # Summary stats
 │   └── requirements.txt
-├── frontend/
-│   ├── src/
-│   │   ├── components/         # All UI components
-│   │   ├── Pages/              # Home page
-│   │   └── services/api.js     # Axios API calls
-│   ├── package.json
-│   └── vite.config.js
+├── nextjs-frontend/
+│   ├── app/                    # Next.js app router pages
+│   ├── components/             # All UI components
+│   ├── services/api.ts         # Axios API calls
+│   ├── store/index.ts          # Zustand global state
+│   ├── types/index.ts          # TypeScript types
+│   ├── next.config.ts
+│   └── package.json
 └── README.md
 ```
 

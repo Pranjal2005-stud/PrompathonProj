@@ -1,24 +1,34 @@
-import pandas as pd
-import json
+"""
+data_loader.py
+--------------
+Loads static reference data: vendor master and price benchmark.
+Returns empty structures gracefully if files are missing.
+"""
+
 import os
+import json
+import pandas as pd
 
-_base = os.path.dirname(os.path.abspath(__file__))
+BASE = os.path.dirname(__file__)
+DATA_DIR = os.path.join(BASE, "data")
 
-# -------- Load Vendor Master --------
-def load_vendor_master():
+
+def load_vendor_master() -> pd.DataFrame:
+    path = os.path.join(DATA_DIR, "vendor_master.csv")
     try:
-        df = pd.read_csv(os.path.join(_base, "data", "vendor_master.csv"))
-        df.columns = df.columns.str.strip().str.lower()  # normalize to lowercase
+        df = pd.read_csv(path)
+        df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
         return df
     except Exception as e:
-        print("Error loading vendor master:", e)
-        return pd.DataFrame()
+        print(f"[data_loader] vendor_master not loaded: {e}")
+        return pd.DataFrame(columns=["vendor_name"])
 
-# -------- Load Price Benchmark --------
-def load_price_benchmark():
+
+def load_price_benchmark() -> dict:
+    path = os.path.join(DATA_DIR, "price_benchmark.json")
     try:
-        with open(os.path.join(_base, "data", "price_benchmark.json"), "r") as f:
+        with open(path, "r") as f:
             return json.load(f)
     except Exception as e:
-        print("Error loading price benchmark:", e)
+        print(f"[data_loader] price_benchmark not loaded: {e}")
         return {}
