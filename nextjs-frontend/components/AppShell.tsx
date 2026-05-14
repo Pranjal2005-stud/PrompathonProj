@@ -147,7 +147,9 @@ export default function AppShell() {
     const blocked       = invoices.filter((d) => d.decision === "BLOCK").length;
     const review        = invoices.filter((d) => d.decision === "REVIEW").length;
     const fraudRate     = total > 0 ? ((fraudDetected / total) * 100).toFixed(1) : "0.0";
-    const amountSaved   = invoices.filter((d) => d.decision === "BLOCK").reduce((s, d) => s + (d.invoice_amount ?? 0), 0);
+    const amountSaved   = invoices
+      .filter((d) => d.decision === "BLOCK")
+      .reduce((s, d) => s + (d.invoice_amount ?? 0), 0);
     return { total, fraudDetected, blocked, review, fraudRate, amountSaved };
   }, [invoices]);
 
@@ -271,14 +273,16 @@ export default function AppShell() {
                 </motion.div>
               )}
 
-              {/* 2 KPI cards - simplified */}
+              {/* 4 KPI cards — all derived from single useMemo above */}
               {total > 0 && (
-              <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-2 gap-4 max-w-2xl">
+              <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-4 gap-4">
                 {[
-                  { type: "invoices" as const, title: "Total Invoices", value: total, sub: "processed" },
-                  { type: "saved" as const, title: "Amount Saved", value: amountSaved, sub: "₹ prevented", prefix: "₹" },
+                  { type: "invoices" as const, title: "Total Invoices",   value: total,         sub: `${fraudRate}% fraud rate` },
+                  { type: "blocked"  as const, title: "Fraud Detected",   value: fraudDetected, sub: `risk ≥ 60 · ${blocked} blocked` },
+                  { type: "vendors"  as const, title: "Blocked Payments", value: blocked,       sub: `${review} under review` },
+                  { type: "saved"    as const, title: "Amount Saved",     value: amountSaved,   sub: "₹ leakage prevented", prefix: "₹" },
                 ].map((m, i) => (
-                  <motion.div key={m.title} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.07 }}>
+                  <motion.div key={m.title} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }}>
                     <MetricCard {...m} loading={loading} />
                   </motion.div>
                 ))}
