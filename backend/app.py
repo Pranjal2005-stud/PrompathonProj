@@ -202,17 +202,23 @@ def get_kpi():
         return {
             "total": 0, "fraud_detected": 0, "blocked": 0,
             "review": 0, "approved": 0, "fraud_rate": 0.0,
-            "amount_saved": 0.0, "critical_count": 0,
-            "high_count": 0, "avg_risk_score": 0.0,
+            "amount_saved": 0.0, "total_fraud_amount": 0.0,
+            "critical_count": 0, "high_count": 0,
+            "avg_risk_score": 0.0, "anomaly_count": 0,
         }
     df = _last_df
     total        = len(df)
     blocked      = int((df["decision"] == "BLOCK").sum())
     review       = int((df["decision"] == "REVIEW").sum())
     approved     = int((df["decision"] == "APPROVE").sum())
-    fraud_det    = int((df["risk_score"] >= 55).sum())
+    fraud_det    = int((df["risk_score"] >= 45).sum())
+    anomaly_cnt  = int((df["fraud_type"] != "Normal").sum()) if "fraud_type" in df.columns else 0
     amount_saved = float(
         df.loc[df["decision"] == "BLOCK", "invoice_amount"].sum()
+        if "invoice_amount" in df.columns else 0
+    )
+    total_fraud_amount = float(
+        df.loc[df["risk_score"] >= 45, "invoice_amount"].sum()
         if "invoice_amount" in df.columns else 0
     )
     critical = int((df.get("alert_level", pd.Series()) == "CRITICAL").sum())
@@ -220,16 +226,18 @@ def get_kpi():
     avg_risk = float(df["risk_score"].mean()) if "risk_score" in df.columns else 0.0
 
     return {
-        "total":          total,
-        "fraud_detected": fraud_det,
-        "blocked":        blocked,
-        "review":         review,
-        "approved":       approved,
-        "fraud_rate":     round(fraud_det / max(total, 1) * 100, 1),
-        "amount_saved":   round(amount_saved, 2),
-        "critical_count": critical,
-        "high_count":     high,
-        "avg_risk_score": round(avg_risk, 1),
+        "total":               total,
+        "fraud_detected":      fraud_det,
+        "blocked":             blocked,
+        "review":              review,
+        "approved":            approved,
+        "fraud_rate":          round(fraud_det / max(total, 1) * 100, 1),
+        "amount_saved":        round(amount_saved, 2),
+        "total_fraud_amount":  round(total_fraud_amount, 2),
+        "critical_count":      critical,
+        "high_count":          high,
+        "avg_risk_score":      round(avg_risk, 1),
+        "anomaly_count":       anomaly_cnt,
     }
 
 
@@ -301,9 +309,13 @@ def get_vendors():
     if _last_df.empty:
         return []
     df = _last_df
+    max_invoices = max(df.groupby("vendor_name").size().max(), 1)
     result = []
     for vendor, grp in df.groupby("vendor_name"):
-        avg_risk    = float(grp["risk_score"].mean())
+        mean_risk   = float(grp["risk_score"].mean())
+        max_risk    = float(grp["risk_score"].max())
+        vol_weight  = min(len(grp) / max_invoices, 1.0)
+        vendor_risk = round(0.6 * mean_risk + 0.3 * max_risk + 0.1 * np.percentile(grp["risk_score"], 90))
         blocked     = int((grp["decision"] == "BLOCK").sum())
         suspicious  = int((grp["risk_score"] >= 55).sum())
         shared_bank = int(grp.get("shared_bank_account", pd.Series(0)).max() or 0)
@@ -316,16 +328,16 @@ def get_vendors():
             "vendor_name":         str(vendor),
             "vendor_id":           str(grp["vendor_id"].iloc[0]),
             "invoice_count":       len(grp),
-            "avg_risk_score":      round(avg_risk, 1),
+            "avg_risk_score":      vendor_risk,
             "blocked_count":       blocked,
             "suspicious_count":    suspicious,
             "shared_bank_account": shared_bank,
             "network_risk_score":  round(net_risk, 1),
             "fraud_types":         fraud_types,
             "alert_level": (
-                "CRITICAL" if avg_risk >= 75 else
-                "HIGH"     if avg_risk >= 55 else
-                "MEDIUM"   if avg_risk >= 40 else "LOW"
+                "CRITICAL" if vendor_risk >= 75 else
+                "HIGH"     if vendor_risk >= 55 else
+                "MEDIUM"   if vendor_risk >= 40 else "LOW"
             ),
         })
     result.sort(key=lambda x: -x["avg_risk_score"])

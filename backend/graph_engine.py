@@ -172,7 +172,7 @@ def _build_graph(df: pd.DataFrame) -> nx.Graph:
             # Ignore overly common metadata
             # -------------------------------------------------------------
 
-            if len(vendors) > 4:
+            if len(vendors) > 12:
                 continue
 
             # -------------------------------------------------------------
@@ -327,13 +327,9 @@ def _compute_metrics(G: nx.Graph) -> dict:
             (degree / max_degree) * 40.0
         )
 
-        cluster_score = (
-            (cluster_size / max_cluster) * 30.0
-        )
+        cluster_score = (np.log1p(cluster_size) / np.log1p(max_cluster)) * 30.0
 
-        pagerank_score = (
-            (pr / max_pr) * 30.0
-        )
+        pagerank_score = np.log1p(pr * 1000) * 5.0
 
         co_occurrence_score = (
 
@@ -361,25 +357,25 @@ def _compute_metrics(G: nx.Graph) -> dict:
         shell_vendor_flag = int(
 
             (
-                degree >= 4
+                degree >= 6
             )
 
             and
 
             (
-                cluster_size >= 4
+                cluster_size >= 5
             )
 
             and
 
             (
-                pr >= 0.12
+                pr >= np.percentile(list(pagerank.values()), 85)
             )
 
             and
 
             (
-                co_occurrence_score >= 70
+                co_occurrence_score >= 75
             )
 
         )
@@ -394,6 +390,9 @@ def _compute_metrics(G: nx.Graph) -> dict:
                 round(degree, 2),
 
             "cluster_size":
+                round(cluster_size, 2),
+
+            "community_size":
                 round(cluster_size, 2),
 
             "pagerank":
@@ -477,6 +476,7 @@ def enrich_with_graph_features(
 
         "vendor_degree",
         "cluster_size",
+        "community_size",
         "pagerank",
         "shell_vendor_flag",
         "co_occurrence_score",
@@ -550,6 +550,7 @@ def enrich_with_graph_features(
 
         "vendor_degree",
         "cluster_size",
+        "community_size",
         "pagerank",
 
         "shell_vendor_flag",

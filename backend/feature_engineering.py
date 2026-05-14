@@ -171,8 +171,17 @@ def compute_features(df: pd.DataFrame) -> pd.DataFrame:
     df["entropy_score"] = df["vendor_id"].map(entropy_map).fillna(0.0)
 
     # ── Graph enrichment ──────────────────────────────────────────────────────
-    # Overwrites vendor_degree, cluster_size; adds shared_*_flag, shell_vendor_flag
+    # Overwrites vendor_degree, cluster_size; adds shared_*_flag, shell_vendor_flag,
+    # community_size, pagerank
     df = enrich_with_graph_features(df)
+
+    # community_size is the training-time name for cluster_size
+    if "community_size" not in df.columns:
+        df["community_size"] = df["cluster_size"].fillna(1.0)
+
+    # pagerank must always be present
+    if "pagerank" not in df.columns:
+        df["pagerank"] = 0.0
 
     # ── cluster_id (informational) ────────────────────────────────────────────
     df["cluster_id"] = np.where(

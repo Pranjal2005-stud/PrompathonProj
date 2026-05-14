@@ -152,10 +152,17 @@ def get_prediction(df: pd.DataFrame, model=None, scaler=None) -> pd.DataFrame:
 
     missing = [f for f in ML_FEATURES if f not in df.columns]
     if missing:
-        log.warning("[predict] Filling %d missing ML features: %s", len(missing), missing)
-    for col in ML_FEATURES:
-        if col not in df.columns:
-            df[col] = 0.0
+        raise ValueError(
+            f"[predict] Feature mismatch — missing at inference: {missing}. "
+            "Check graph_engine and feature_engineering outputs."
+        )
+
+    extra = [f for f in df.columns if f in (
+        "amount_ratio", "cluster_amount_ratio", "cluster_size",
+        "co_occurrence_score", "entropy_score"
+    )]
+    if extra:
+        log.debug("[predict] Extra columns present but not used by model: %s", extra)
 
     X = (
         df[ML_FEATURES]
@@ -191,18 +198,25 @@ def get_prediction(df: pd.DataFrame, model=None, scaler=None) -> pd.DataFrame:
             )
         except Exception as exc:
             log.error("[predict] ML scoring failed: %s", exc)
-            df["ml_risk_score"] = 30.0
-            df["anomaly_score"] = 0.0
+            raise RuntimeError(f"[predict] ML inference failed: {exc}") from exc
     else:
         log.warning("[predict] No model loaded — using rule+behavior scores only")
         df["ml_risk_score"] = 30.0
-        df["anomaly_score"] = 0.0
+        df["anomaly_score"] = pd.Series(30.0, index=df.index)
 
     # Rule engine
     df = apply_rules(df)
 
     if "behavior_score" not in df.columns:
         df["behavior_score"] = 0.0
+
+    # For no-model path: derive anomaly_score from rule signals now that rules are applied
+    no_ml = df["anomaly_score"] == 30.0
+    if no_ml.any():
+        df.loc[no_ml, "anomaly_score"] = (
+            df.loc[no_ml, "rule_score"].fillna(0.0) * 0.6 +
+            df.loc[no_ml, "behavior_score"].fillna(0.0) * 0.4
+        ).clip(0, 100)
 
     # Weighted blend
     df["risk_score"] = (
@@ -211,12 +225,11 @@ def get_prediction(df: pd.DataFrame, model=None, scaler=None) -> pd.DataFrame:
         + BEHAVIOR_WEIGHT * df["behavior_score"].fillna(0.0)
     ).clip(0.0, MAX_RISK_SCORE)
 
-    # Confidence adjustment
+    # Confidence adjustment — scale score down for low-confidence rows,
+    # but do NOT anchor toward a fixed mean (that collapses variance)
     if "data_confidence" in df.columns:
-        conf = df["data_confidence"].clip(0.1, 1.0)
-        df["risk_score"] = (
-            df["risk_score"] * conf + 40.0 * (1.0 - conf)
-        ).clip(0.0, MAX_RISK_SCORE)
+        conf = df["data_confidence"].clip(0.3, 1.0)
+        df["risk_score"] = (df["risk_score"] * conf).clip(0.0, MAX_RISK_SCORE)
 
     # Signal boosts
     boost = pd.Series(0.0, index=df.index)
@@ -252,7 +265,7 @@ def get_prediction(df: pd.DataFrame, model=None, scaler=None) -> pd.DataFrame:
     if "force_escalate" in df.columns:
         boost += df["force_escalate"].fillna(False).astype(int) * BOOST_FORCE_ESCALATE
 
-    boost = boost.clip(0, 25)
+    boost = boost.clip(0, 18)
     df["risk_score"] = (df["risk_score"] + boost).clip(0.0, MAX_RISK_SCORE)
 
     # Decision
@@ -260,13 +273,11 @@ def get_prediction(df: pd.DataFrame, model=None, scaler=None) -> pd.DataFrame:
         score = float(row["risk_score"])
         conf = float(row.get("data_confidence", 1.0))
         escalate = bool(row.get("force_escalate", False))
-        if escalate and score >= 75:
+        if escalate or score >= 75:
             return "BLOCK"
         if conf < LOW_CONFIDENCE_THRESHOLD:
             return "REVIEW"
-        if score >= 85:
-            return "BLOCK"
-        if score >= 50:
+        if score >= 55:
             return "REVIEW"
         return "APPROVE"
 
@@ -277,7 +288,7 @@ def get_prediction(df: pd.DataFrame, model=None, scaler=None) -> pd.DataFrame:
 
     if "fraud_type" in df.columns:
         ml_anomaly = (df["fraud_type"] == "Normal") & (df["ml_risk_score"] > 55)
-        df.loc[ml_anomaly, "fraud_type"] = "Anomalous Pattern"
+        df.loc[ml_anomaly, "fraud_type"] = "Anomaly"
 
     # Network risk score
     df["network_risk_score"] = (

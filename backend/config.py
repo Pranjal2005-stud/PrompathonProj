@@ -14,20 +14,17 @@ ML_FEATURES = [
     "vendor_mean",
     "vendor_std",
     "amount_zscore",
-    "amount_ratio",
-    "invoice_gap_days",
     "vendor_frequency",
-    "split_cluster_flag",
-    "vendor_degree",
-    "cluster_size",
-    "window_invoice_count",
-    "window_vendor_count",
-    "cluster_amount_ratio",
-    "co_occurrence_score",
-    "entropy_score",
+    "invoice_gap_days",
     "shared_bank_flag",
     "shared_gst_flag",
     "shared_address_flag",
+    "window_invoice_count",
+    "window_vendor_count",
+    "split_cluster_flag",
+    "vendor_degree",
+    "community_size",
+    "pagerank",
 ]
 
 # =============================================================================
@@ -35,10 +32,10 @@ ML_FEATURES = [
 # =============================================================================
 
 ML_WEIGHT       = 0.55
-RULE_WEIGHT     = 0.25
-BEHAVIOR_WEIGHT = 0.20
+RULE_WEIGHT     = 0.30
+BEHAVIOR_WEIGHT = 0.15
 
-TOTAL_WEIGHT = ML_WEIGHT + RULE_WEIGHT + BEHAVIOR_WEIGHT
+TOTAL_WEIGHT = ML_WEIGHT + RULE_WEIGHT + BEHAVIOR_WEIGHT  # = 1.0
 
 # =============================================================================
 # DECISION THRESHOLDS
@@ -74,26 +71,26 @@ THRESHOLD_HUG_LOW   = 0.92    # lowered: catch more threshold-hugging
 THRESHOLD_HUG_HIGH  = 0.999
 
 SPLIT_WINDOW_DAYS   = 7
-SPLIT_MIN_INVOICES  = 3      # lowered: catch 2-invoice splits too
-SPLIT_CLUSTER_RATIO = 1.35     # lowered: more sensitive to clustering
+SPLIT_MIN_INVOICES  = 4    # lowered: catch 2-invoice splits too
+SPLIT_CLUSTER_RATIO = 1.55     # lowered: more sensitive to clustering
 
 # =============================================================================
 # GRAPH THRESHOLDS
 # =============================================================================
 
-GRAPH_HIGH_DEGREE        = 4   # lowered: even 2 connections is suspicious
+GRAPH_HIGH_DEGREE        = 5   # lowered: even 2 connections is suspicious
 GRAPH_SHELL_CLUSTER_SIZE = 3   # lowered
 GRAPH_PAGERANK_HIGH      = 0.10
 GRAPH_BETWEENNESS_HIGH   = 0.10   # kept for explain.py compat
 
 # co_occurrence_score is 0–100 composite
-CO_OCCURRENCE_HIGH = 70.0   # lowered: catch more coordination patterns
+CO_OCCURRENCE_HIGH = 78.0   # lowered: catch more coordination patterns
 
 # =============================================================================
 # RULE ENGINE THRESHOLDS
 # =============================================================================
 
-OVERBILLING_RATIO       = 1.25   # lowered: 15% over PO is suspicious
+OVERBILLING_RATIO       = 1.35   # lowered: 15% over PO is suspicious
 QUANTITY_MISMATCH_RATIO = 1.40
 OVERPAYMENT_RATIO       = 1.18   # lowered
 UNDERBILLING_RATIO      = 0.40
@@ -101,7 +98,7 @@ HIGH_DEVIATION_IQR      = 2.0    # lowered
 EXTREME_DEVIATION_IQR   = 4.0    # lowered
 RAPID_RESUBMISSION_DAYS = 2      # widened window
 INVOICE_BURST_COUNT     = 5     # lowered: 3 invoices same day = burst
-FIRST_INVOICE_MULTIPLIER = 2.0   # lowered
+FIRST_INVOICE_MULTIPLIER = 2.5   # lowered
 
 # =============================================================================
 # GRAPH FEATURE WEIGHTS
