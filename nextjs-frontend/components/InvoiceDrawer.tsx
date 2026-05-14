@@ -9,6 +9,7 @@ import { useAppStore } from "@/store";
 import { getAIExplanation, submitReviewerAction } from "@/services/api";
 import { parseAIText, RISK_KEYWORDS } from "@/lib/utils";
 import { RiskBadge, DecisionBadge, SectionTitle } from "@/components/ui/primitives";
+import ApprovalChain from "@/components/ApprovalChain";
 
 const FLAG_CFG: Record<string, { icon: React.ElementType; color: string; bg: string; border: string }> = {
   "Overbilling":             { icon: ShieldX,      color: "#dc2626", bg: "#fef2f2", border: "#fecaca" },
@@ -201,6 +202,11 @@ const InvoiceDrawer = memo(function InvoiceDrawer() {
                     </div>
                   ))}
                 </div>
+              </div>
+
+              {/* Approval Chain Visualizer - Main USP */}
+              <div className="px-7 py-5 border-t border-slate-50">
+                <ApprovalChain invoiceId={invoice.invoice_id} amount={invoice.invoice_amount} />
               </div>
               {flags.length > 0 && (
                 <div className="px-7 py-5 border-t border-slate-50">

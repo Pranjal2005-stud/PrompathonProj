@@ -1,7 +1,7 @@
 "use client";
 import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
-import { Zap, RotateCcw, AlertCircle, ClipboardList, Search, ShieldCheck, Bot } from "lucide-react";
+import { Zap, RotateCcw, AlertCircle, ClipboardList, Search, ShieldCheck } from "lucide-react";
 import { useMemo, useState, memo } from "react";
 import { useAppStore } from "@/store";
 import { DEMO_DATA } from "@/lib/demo-data";
@@ -152,7 +152,7 @@ export default function AppShell() {
   }, [invoices]);
 
   const PAGE_META: Record<string, { title: string; subtitle: string }> = {
-    dashboard: { title: "Command Center",      subtitle: total > 0 ? `${total} invoices · ${blocked} blocked · ${review} under review` : "Upload a CSV to begin fraud analysis" },
+    dashboard: { title: "Command Center",      subtitle: total > 0 ? "" : "Upload a CSV to begin fraud analysis" },
     invoices:  { title: "Invoice Monitoring",  subtitle: `${total} invoices loaded` },
     alerts:    { title: "Live Fraud Alerts",   subtitle: `${blocked} blocked · ${review} under review` },
     vendors:   { title: "Vendor Intelligence", subtitle: "Risk heatmap across all vendors" },
@@ -256,27 +256,21 @@ export default function AppShell() {
                     style={{ background: "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)", border: "1px solid #bfdbfe" }}>
                     <ShieldCheck size={40} className="text-blue-600" />
                   </div>
-                  <h2 className="text-2xl font-semibold text-slate-800 mb-2">FraudShield</h2>
+                  <h2 className="text-2xl font-semibold text-slate-800 mb-2">Invoice Fraud Detection System</h2>
                   <p className="text-slate-500 max-w-md mb-6">
-                    Upload your invoice CSV to start AI-powered fraud detection. Identify high-risk transactions and prevent financial loss.
+                    Upload your invoice CSV to start fraud detection. Identify high-risk transactions and prevent financial loss.
                   </p>
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-50 text-emerald-700 text-sm" style={{ border: "1px solid #86efac" }}>
-                      <Zap size={14} /> Real-time Analysis
-                    </div>
-                    <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-50 text-purple-700 text-sm" style={{ border: "1px solid #c4b5fd" }}>
-                      <Bot size={14} /> AI-Powered
-                    </div>
-                  </div>
                 </motion.div>
               )}
 
-              {/* 2 KPI cards - simplified */}
+              {/* 4 KPI cards */}
               {total > 0 && (
-              <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-2 gap-4 max-w-2xl">
+              <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-4 gap-4">
                 {[
-                  { type: "invoices" as const, title: "Total Invoices", value: total, sub: "processed" },
-                  { type: "saved" as const, title: "Amount Saved", value: amountSaved, sub: "₹ prevented", prefix: "₹" },
+                  { type: "invoices" as const, title: "Total Invoices",  value: total,          sub: "processed" },
+                  { type: "fraud"    as const, title: "Fraud Detected",  value: fraudDetected,  sub: "high risk" },
+                  { type: "review"   as const, title: "Under Review",    value: review,         sub: "pending" },
+                  { type: "saved"    as const, title: "Amount Saved",    value: amountSaved,    sub: "₹ prevented", prefix: "₹" },
                 ].map((m, i) => (
                   <motion.div key={m.title} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.07 }}>
                     <MetricCard {...m} loading={loading} />

@@ -44,18 +44,10 @@ export default function Navbar() {
       style={{ borderBottom: "1px solid #e2e8f0", height: "60px", boxShadow: "0 1px 0 #f1f5f9" }}
     >
       <div className="flex items-center gap-2 shrink-0">
-        <label
-          className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white cursor-pointer hover:opacity-90 active:scale-95 shrink-0"
-          style={{ background: "linear-gradient(135deg,#1d4ed8,#2563eb)", boxShadow: "0 2px 8px rgba(37,99,235,0.3)" }}
-        >
-          {loading ? (
-            <><Loader2 size={14} className="animate-spin" /><span>Analyzing…</span></>
-          ) : (
-            <><Upload size={14} /><span>Upload CSV</span></>
-          )}
-          <input type="file" accept=".csv" className="hidden" onChange={handleFileChange} />
-        </label>
+        <p className="text-lg font-semibold text-slate-800">Dashboard</p>
+      </div>
 
+      <div className="flex items-center gap-2 shrink-0">
         <div className="relative">
           <button
             onClick={() => setBellOpen((o) => !o)}
@@ -128,6 +120,18 @@ export default function Navbar() {
           </div>
           <ChevronDown size={12} className="text-slate-400" />
         </button>
+
+        <label
+          className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white cursor-pointer hover:opacity-90 active:scale-95 shrink-0"
+          style={{ background: "linear-gradient(135deg,#1d4ed8,#2563eb)", boxShadow: "0 2px 8px rgba(37,99,235,0.3)" }}
+        >
+          {loading ? (
+            <><Loader2 size={14} className="animate-spin" /><span>Analyzing…</span></>
+          ) : (
+            <><Upload size={14} /><span>Upload CSV</span></>
+          )}
+          <input type="file" accept=".csv" className="hidden" onChange={handleFileChange} />
+        </label>
       </div>
     </header>
   );

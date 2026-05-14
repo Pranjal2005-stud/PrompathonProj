@@ -7,7 +7,7 @@ import { useAppStore } from "@/store";
 import { getFraudCategory } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/primitives";
 
-const FRAUD_TYPES = ["Split Invoice", "Shell Vendor", "Overbilling", "Duplicate", "Overpayment", "Anomaly"];
+const FRAUD_TYPES = ["Shell Vendor", "Anomaly"];
 
 const VendorHeatmap = memo(function VendorHeatmap() {
   const { invoices: data, loading, setSelectedInvoice } = useAppStore();
@@ -145,8 +145,7 @@ const VendorHeatmap = memo(function VendorHeatmap() {
       min: 0,
       max: 100,
       inRange: {
-        // Light pastel palette so black labels are always readable
-        color: ["#dcfce7", "#bbf7d0", "#fef9c3", "#fde68a", "#fed7aa", "#fca5a5", "#f87171", "#fecaca"],
+        color: ["#dcfce7", "#bbf7d0", "#fef9c3", "#fde68a", "#fed7aa", "#fca5a5", "#f87171", "#ef4444"],
       },
     },
     series: [

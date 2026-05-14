@@ -82,7 +82,7 @@ function generatePDF(data: Invoice[]) {
     doc.setPage(i);
     doc.setFontSize(7);
     doc.setTextColor(148, 163, 184);
-    doc.text(`Page ${i} of ${pageCount}  |  FraudShield Enterprise  |  CONFIDENTIAL`, 14, 290);
+    doc.text(`Page ${i} of ${pageCount}  |  Invoice Fraud Detection System  |  CONFIDENTIAL`, 14, 290);
   }
   doc.save(`fraud-report-${Date.now()}.pdf`);
 }
@@ -117,10 +117,11 @@ export default function Sidebar() {
           {!collapsed && (
             <motion.div
               initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -8 }}
-              transition={{ duration: 0.15 }} className="ml-3 min-w-0 overflow-hidden"
+              transition={{ duration: 0.15 }} className="ml-3 min-w-0"
             >
-              <p className="text-sm font-semibold text-slate-800 whitespace-nowrap">FraudShield</p>
-              <p className="text-[10px] whitespace-nowrap mt-0.5 text-slate-400">Enterprise · AI-Powered</p>
+              <p className="text-sm font-semibold text-slate-800 leading-tight">
+                Invoice Fraud Detection System
+              </p>
             </motion.div>
           )}
         </AnimatePresence>
@@ -188,21 +189,21 @@ export default function Sidebar() {
                             style={{ background: "linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%)" }}
                           />
                         )}
-                        <Icon size={15} className="shrink-0" style={{ color: isActive ? "#2563eb" : "#94a3b8" }} />
+                        <Icon size={14} className="shrink-0" style={{ color: isActive ? "#2563eb" : "#94a3b8" }} />
                         <AnimatePresence>
                           {!collapsed && (
                             <motion.span
                               initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -6 }}
                               transition={{ duration: 0.13 }}
-                              className="ml-3 text-[13px] whitespace-nowrap flex-1 text-left"
-                              style={{ fontWeight: isActive ? 600 : 400, color: isActive ? "#1e40af" : "#64748b" }}
+                              className="ml-2.5 text-[13px] whitespace-nowrap flex-1 text-left"
+                              style={{ fontWeight: isActive ? 500 : 400, color: isActive ? "#2563eb" : "#64748b" }}
                             >
                               {itemLabel}
                             </motion.span>
                           )}
                         </AnimatePresence>
                         {badge && alertCount > 0 && !collapsed && (
-                          <span className="ml-auto text-[10px] font-bold text-white px-1.5 py-0.5 rounded-full bg-red-500">
+                          <span className="ml-auto text-[9px] font-bold text-white px-1.5 py-0.5 rounded-full bg-red-500 min-w-[18px] text-center">
                             {alertCount > 9 ? "9+" : alertCount}
                           </span>
                         )}

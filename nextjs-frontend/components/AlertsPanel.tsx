@@ -5,6 +5,7 @@ import {
   ShieldX, Copy, AlertTriangle, DollarSign, Zap,
   CheckCircle, ArrowUpRight, Pause, MessageSquare,
   XCircle, Filter, RefreshCw, Bell, X, Brain, Loader2,
+  ClipboardList,
 } from "lucide-react";
 import { useAppStore } from "@/store";
 import { SEVERITY_COLORS, SEVERITY_ORDER, getAlertSeverity } from "@/lib/utils";
@@ -158,6 +159,7 @@ function DetailPanel({ item, onClose }: { item: Invoice; onClose: () => void }) 
           <p className="text-xs text-slate-400 mt-1">/ 100 risk</p>
         </div>
         <button onClick={onClose}
+          title="Close detail panel"
           className="shrink-0 w-8 h-8 rounded-xl flex items-center justify-center text-slate-400 hover:bg-slate-100 transition-colors">
           <X size={15} />
         </button>
@@ -300,49 +302,36 @@ function AlertCard({
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.02, duration: 0.18 }}
       onClick={() => onSelect(item)}
-      className="flex items-center gap-3 rounded-xl cursor-pointer transition-all select-none"
+      className="flex items-center gap-4 p-4 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors"
       style={{
-        padding: isCompact ? "10px 12px" : "12px 14px",
-        border: isSelected ? `2px solid ${sc.color}` : "1px solid #e2e8f0",
+        border: isSelected ? `2.5px solid ${sc.color}` : "1px solid #e2e8f0",
         background: isSelected ? sc.bg : "#ffffff",
         opacity: isAcked ? 0.4 : 1,
-        boxShadow: isSelected ? `0 0 0 3px ${sc.color}18` : "none",
       }}
       onMouseEnter={(e) => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = "#f8fafc"; }}
       onMouseLeave={(e) => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = "#ffffff"; }}
     >
-      <div className="rounded-xl flex items-center justify-center shrink-0"
-        style={{ width: 36, height: 36, minWidth: 36, background: sc.bg }}>
-        <Icon size={15} style={{ color: fi.color }} />
+      <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+        style={{ background: sc.bg }}>
+        <span className="text-xs font-bold" style={{ color: sc.color }}>{(item.risk_score ?? 0).toFixed(0)}</span>
       </div>
 
-      <div className="flex-1 min-w-0 overflow-hidden">
-        <div className="flex items-center gap-1.5 mb-0.5">
-          <span className="text-[10px] font-bold px-2 py-0.5 rounded-lg shrink-0"
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-0.5">
+          <span className="text-xs font-bold px-2 py-0.5 rounded-lg shrink-0"
             style={{ background: sc.bg, color: sc.color, border: `1px solid ${sc.border}` }}>
             {item._severity}
           </span>
-          <span className="text-xs text-slate-400 font-mono truncate">#{item.invoice_id}</span>
+          <p className="text-sm font-semibold text-slate-800 truncate">{item.vendor_name ?? "Unknown"}</p>
         </div>
-        <p className="text-sm font-semibold text-slate-800 truncate">{item.vendor_name ?? "Unknown"}</p>
-        {!isCompact && (
-          <p className="text-xs text-slate-500 truncate mt-0.5">
-            {item.fraud_type && item.fraud_type !== "Normal" ? item.fraud_type : item.rule_flags ?? "Anomaly"}
-          </p>
-        )}
+        <p className="text-xs text-slate-500 truncate">
+          {item.fraud_type && item.fraud_type !== "Normal" ? item.fraud_type : item.rule_flags ?? "Anomaly"}
+        </p>
       </div>
 
-      <div className="shrink-0 flex flex-col items-end gap-1 ml-2">
-        <p className="text-base font-bold tabular-nums leading-none" style={{ color: sc.color }}>
-          {(item.risk_score ?? 0).toFixed(0)}
-        </p>
-        {!isAcked && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onAck(item.invoice_id); }}
-            className="text-[10px] text-slate-400 hover:text-slate-600 transition-colors">
-            Ack
-          </button>
-        )}
+      <div className="text-right shrink-0 min-w-[60px]">
+        <p className="text-sm font-bold" style={{ color: sc.color }}>{isAcked ? "ACKED" : "PENDING"}</p>
+        <p className="text-xs text-slate-400">#{item.invoice_id}</p>
       </div>
     </motion.div>
   );
@@ -378,9 +367,9 @@ export default function AlertsPanel() {
 
   return (
     /* Constrained max-width so content doesn't stretch across huge screens */
-    <div className="w-full max-w-6xl mx-auto h-full">
-      <div className="flex h-full rounded-2xl overflow-hidden bg-white"
-        style={{ border: "1px solid #e2e8f0", boxShadow: "0 2px 8px rgba(0,0,0,0.07)" }}>
+    <div className="w-full max-w-4xl mx-auto h-full p-4">
+      <div className="flex h-full rounded-2xl bg-white"
+        style={{ border: "1px solid #e2e8f0", boxShadow: "var(--card-shadow)" }}>
 
         {/* ── LEFT: Alert list ── */}
         <motion.div
@@ -390,21 +379,15 @@ export default function AlertsPanel() {
           style={{ minWidth: hasSelected ? 260 : undefined }}
         >
           {/* Header */}
-          <div className="px-5 py-4 shrink-0" style={{ borderBottom: "1px solid #e2e8f0" }}>
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className={`w-2.5 h-2.5 rounded-full bg-red-500 shrink-0 ${pulse ? "animate-ping" : "animate-pulse"}`} />
-                <p className="text-base font-semibold text-slate-800 whitespace-nowrap">Live Alerts</p>
-                {criticalCount > 0 && (
-                  <span className="text-xs font-bold text-white px-2 py-0.5 rounded-full animate-pulse shrink-0 bg-red-600">
-                    {criticalCount} CRITICAL
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center gap-1.5 shrink-0">
-                <RefreshCw size={12} className={`text-slate-400 ${pulse ? "animate-spin" : ""}`} />
-                <span className="text-xs text-slate-400">Live</span>
-              </div>
+          <div className="px-5 py-5 shrink-0">
+            <div className="flex items-center gap-2 mb-4">
+              <ClipboardList size={15} className="text-red-600" />
+              <p className="text-sm font-semibold text-slate-700">Live Alerts</p>
+              {criticalCount > 0 && (
+                <span className="text-[10px] font-bold text-white px-2 py-0.5 rounded-full bg-red-600">
+                  {criticalCount} pending
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-1.5 flex-wrap">
               {["ALL", "CRITICAL", "HIGH", "MEDIUM"].map((s) => {
