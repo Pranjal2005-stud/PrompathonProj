@@ -7,7 +7,7 @@ import { useAppStore } from "@/store";
 import { getFraudCategory } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/primitives";
 
-const FRAUD_TYPES = ["Shell Vendor", "Anomaly"];
+const FRAUD_TYPES = ["Shell Vendor", "Split Invoice"];
 
 const VendorHeatmap = memo(function VendorHeatmap() {
   const { invoices: data, loading, setSelectedInvoice } = useAppStore();
@@ -114,7 +114,7 @@ const VendorHeatmap = memo(function VendorHeatmap() {
         const [xi, yi, val] = params.data;
         const vendor = vendors[yi]?.name ?? "";
         const ft = FRAUD_TYPES[xi] ?? "";
-        const color = val !== null && val >= 65 ? "#f87171" : val !== null && val >= 35 ? "#fbbf24" : "#34d399";
+        const color = val !== null && val >= 70 ? "#f87171" : val !== null && val >= 40 ? "#fb923c" : "#4ade80";
         return `<div style="font-size:12px;padding:6px 10px;line-height:1.6">
           <strong style="color:#f8fafc">${vendor}</strong><br/>
           <span style="color:#94a3b8">${ft}</span><br/>
@@ -145,7 +145,14 @@ const VendorHeatmap = memo(function VendorHeatmap() {
       min: 0,
       max: 100,
       inRange: {
-        color: ["#dcfce7", "#bbf7d0", "#fef9c3", "#fde68a", "#fed7aa", "#fca5a5", "#f87171", "#ef4444"],
+        color: [
+          // 0–40  greens
+          "#dcfce7", "#bbf7d0", "#86efac", "#4ade80", "#22c55e",
+          // 40–70  oranges
+          "#fed7aa", "#fdba74", "#fb923c", "#f97316", "#ea580c",
+          // 70–100 reds
+          "#fca5a5", "#f87171", "#ef4444", "#dc2626", "#991b1b",
+        ],
       },
     },
     series: [
@@ -156,8 +163,7 @@ const VendorHeatmap = memo(function VendorHeatmap() {
           show: true,
           fontSize: 12,
           fontWeight: "bold",
-          // Always black — light pastel backgrounds guarantee readability
-          color: "#1e293b",
+          color: "#ffffff",
         },
         emphasis: {
           itemStyle: { shadowBlur: 12, shadowColor: "rgba(0,0,0,0.15)", borderColor: "#fff", borderWidth: 2 },
@@ -282,15 +288,15 @@ const VendorHeatmap = memo(function VendorHeatmap() {
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-1.5">
               <span className="w-3 h-3 rounded-sm" style={{ background: "#22c55e" }} />
-              <span className="text-[10px] text-slate-400">Low (&lt;35)</span>
+              <span className="text-[10px] text-slate-400">Low (&lt;40)</span>
             </div>
             <div className="flex items-center gap-1.5">
               <span className="w-3 h-3 rounded-sm" style={{ background: "#f97316" }} />
-              <span className="text-[10px] text-slate-400">Medium (35–65)</span>
+              <span className="text-[10px] text-slate-400">Medium (40–70)</span>
             </div>
             <div className="flex items-center gap-1.5">
               <span className="w-3 h-3 rounded-sm" style={{ background: "#ef4444" }} />
-              <span className="text-[10px] text-slate-400">High (&gt;65)</span>
+              <span className="text-[10px] text-slate-400">High (&gt;70)</span>
             </div>
           </div>
         </div>

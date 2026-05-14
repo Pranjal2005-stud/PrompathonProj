@@ -57,7 +57,9 @@ export function getFraudCategory(item: Invoice): string | null {
   if (ft.includes("overbill") || fl.includes("overbill")) return "Overbilling";
   if (ft.includes("duplicate") || fl.includes("duplicate")) return "Duplicate";
   if (ft.includes("overpay") || fl.includes("overpay")) return "Overpayment";
-  if (item.decision === "BLOCK" || item.decision === "REVIEW") return "Anomaly";
+  if (ft.includes("threshold") || fl.includes("threshold")) return "Split Invoice";
+  if (ft.includes("anomal") || ft.includes("coordinated")) return "Split Invoice";
+  if (item.decision === "BLOCK" || item.decision === "REVIEW") return "Split Invoice";
   return null;
 }
 
