@@ -1,16 +1,17 @@
-# 🛡️ AI Fraud Intelligence Dashboard
+# 🛡️ FraudShield — AI Procurement Fraud Detection
 
-A production-grade invoice fraud detection system powered by IsolationForest ML model with a React + FastAPI stack.
+An enterprise-grade invoice fraud detection system powered by IsolationForest + XGBoost ML models, graph analytics, and Groq AI explanations.
 
 ---
 
 ## 🚀 Tech Stack
 
-| Layer    | Tech                                      |
-|----------|-------------------------------------------|
-| Frontend | Next.js 15, React 19, TailwindCSS, ECharts, Framer Motion, Lucide, Zustand |
-| Backend  | FastAPI, Pandas, Scikit-learn, Uvicorn    |
-| ML Model | IsolationForest (anomaly detection)       |
+| Layer    | Tech |
+|----------|------|
+| Frontend | Next.js 15, React 19, TailwindCSS, Apache ECharts, Framer Motion, Zustand |
+| Backend  | FastAPI, Pandas, Scikit-learn, XGBoost, NetworkX |
+| ML       | IsolationForest + XGBoost (hybrid scoring) |
+| AI       | Groq (llama-3.3-70b) for explanations |
 
 ---
 
@@ -19,8 +20,8 @@ A production-grade invoice fraud detection system powered by IsolationForest ML 
 ### 1. Clone the repo
 
 ```bash
-git clone https://github.com/Pranjal2005-stud/PrompathonProj.git
-cd PrompathonProj
+git clone https://github.com/YOUR_USERNAME/invoice-fraud-system.git
+cd invoice-fraud-system
 ```
 
 ---
@@ -29,17 +30,46 @@ cd PrompathonProj
 
 ```bash
 cd backend
+python -m venv venv
+
+# Windows
+venv\Scripts\activate
+
+# Mac/Linux
+source venv/bin/activate
+
 pip install -r requirements.txt
+```
+
+**Create your `.env` file:**
+
+```bash
+cp .env.example .env
+```
+
+Open `backend/.env` and add your Groq API key:
+
+```
+GROQ_API_KEY=your_groq_api_key_here
+```
+
+Get a free key at → https://console.groq.com
+
+> The app works without a Groq key — AI explanations will use the built-in fallback instead.
+
+**Start the backend:**
+
+```bash
 uvicorn app:app --reload
 ```
 
 Backend runs on → `http://localhost:8000`
 
-> ⚠️ Make sure `backend/models/anomaly_model.pkl` and `backend/models/scaler.pkl` exist before running. These are not included in the repo due to size. Train them separately or request from the team.
-
 ---
 
 ### 3. Frontend Setup
+
+Open a second terminal:
 
 ```bash
 cd nextjs-frontend
@@ -57,22 +87,34 @@ Frontend runs on → `http://localhost:3000`
 invoice-fraud-system/
 ├── backend/
 │   ├── app.py                  # FastAPI entry point
-│   ├── feature_engineering.py  # Feature computation
-│   ├── predict.py              # ML scoring + decision logic
-│   ├── rule_engine.py          # Rule-based fraud flags
+│   ├── config.py               # All thresholds and weights
+│   ├── feature_engineering.py  # 18 ML feature pipeline
+│   ├── predict.py              # Hybrid scoring engine
+│   ├── rule_engine.py          # Deterministic fraud rules
+│   ├── graph_engine.py         # Vendor collusion graph
+│   ├── invoice_parser.py       # CSV/Excel parser + column mapping
+│   ├── alert_engine.py         # Live alert generator
 │   ├── explain.py              # AI explanation generator
 │   ├── model_loader.py         # Loads .pkl model files
-│   ├── utils.py                # Summary stats
-│   └── requirements.txt
-├── nextjs-frontend/
-│   ├── app/                    # Next.js app router pages
-│   ├── components/             # All UI components
-│   ├── services/api.ts         # Axios API calls
-│   ├── store/index.ts          # Zustand global state
-│   ├── types/index.ts          # TypeScript types
-│   ├── next.config.ts
-│   └── package.json
-└── README.md
+│   ├── data_loader.py          # Loads vendor master + benchmark
+│   ├── canonical_schema.py     # Schema + confidence scoring
+│   ├── models/
+│   │   ├── iforest.pkl         # IsolationForest model
+│   │   ├── xgb.pkl             # XGBoost model
+│   │   └── scaler (1).pkl      # Feature scaler
+│   ├── data/
+│   │   ├── vendor_master.csv
+│   │   └── price_benchmark.json
+│   ├── requirements.txt
+│   ├── .env.example
+│   └── .env                    # ← create this yourself (not in git)
+└── nextjs-frontend/
+    ├── app/                    # Next.js App Router pages
+    ├── components/             # All UI components
+    ├── services/api.ts         # Backend API calls
+    ├── store/index.ts          # Zustand global state
+    ├── types/index.ts          # TypeScript types
+    └── package.json
 ```
 
 ---
@@ -80,32 +122,58 @@ invoice-fraud-system/
 ## 📊 Features
 
 - Upload CSV invoice file → instant fraud analysis
-- ML anomaly detection (IsolationForest)
-- Rule-based fraud flags (Overbilling, Duplicate, Missing PO, Overpayment)
-- KPI cards with count-up animation
-- Decision breakdown doughnut chart
-- Risk score trend line chart
-- Risk distribution bar chart
-- Vendor risk heatmap
-- Real-time toast notifications
+- Hybrid ML scoring (IsolationForest + XGBoost + rules)
+- Shell vendor and collusion detection via graph analytics
+- Invoice splitting and threshold avoidance detection
+- KPI dashboard with animated counters
+- Live fraud alerts panel
+- Vendor risk heatmap (Apache ECharts)
 - Sortable, searchable, paginated invoice table
-- Slide-in invoice drawer with AI explanation
-- Notification bell with alert dropdown
+- AI forensic explanation per invoice (Groq)
+- AI Copilot chatbot
+- PDF report export
+- Debug endpoint: `POST /debug/fraud-score`
+- Upload diagnostics: `POST /upload/diagnostics`
 
 ---
 
-## 🧪 CSV Format
+## 📋 CSV Format
 
-Your CSV should have these columns:
+Your CSV should have these columns (many aliases are supported automatically):
 
-| Column               | Description                  |
-|----------------------|------------------------------|
-| `invoice_id`         | Unique invoice identifier    |
-| `vendor_id`          | Vendor identifier            |
-| `vendor_name`        | Vendor display name          |
-| `invoice_amount`     | Invoice value                |
-| `approved_amount_po` | PO approved amount           |
-| `quantity`           | Invoiced quantity            |
-| `approved_quantity_po` | PO approved quantity       |
-| `paid_amount`        | Amount already paid          |
-| `invoice_date`       | Date of invoice (YYYY-MM-DD) |
+| Column | Aliases also accepted |
+|--------|----------------------|
+| `vendor_name` | `vendor`, `supplier`, `company_name` |
+| `invoice_amount` | `amount`, `total`, `total_amount` |
+| `invoice_date` | `date`, `bill_date`, `txn_date` |
+| `vendor_id` | `vendor_code`, `supplier_id` |
+| `approved_amount_po` | `po_amount`, `approved_amount` |
+| `paid_amount` | `payment`, `amount_paid` |
+| `bank_account` | `bank`, `acc_no`, `account_number` |
+| `gst_number` | `gst_id`, `gstin`, `tax_id` |
+| `vendor_address` | `address`, `city`, `location` |
+
+---
+
+## 🔑 Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `GROQ_API_KEY` | Optional | Enables AI explanations. App works without it. |
+
+---
+
+## 🧪 API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/predict` | Upload CSV, get fraud scores |
+| GET | `/kpi` | Dashboard KPI metrics |
+| GET | `/alerts` | Paginated fraud alerts |
+| GET | `/transactions` | Paginated invoice list |
+| GET | `/vendors` | Per-vendor risk summary |
+| POST | `/explain` | AI explanation for one invoice |
+| POST | `/copilot` | AI chat |
+| POST | `/debug/fraud-score` | Full scoring breakdown |
+| POST | `/upload/diagnostics` | Column mapping report |
+| POST | `/review/action` | Record reviewer decision |

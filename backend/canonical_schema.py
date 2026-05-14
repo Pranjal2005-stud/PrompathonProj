@@ -1,48 +1,139 @@
 """
 canonical_schema.py
 -------------------
-Defines the single internal invoice schema the entire pipeline operates on.
-All upstream parsers MUST produce this schema before entering feature engineering.
+Defines the canonical invoice schema used internally by the system.
+
+Every parser must convert incoming data into this schema before:
+- feature engineering
+- rule processing
+- ML inference
 """
 
+# =============================================================================
+# CANONICAL FIELDS
+# =============================================================================
+
 CANONICAL_FIELDS = {
-    "invoice_id":           (str,   None),
-    "vendor_id":            (str,   "unknown"),
-    "vendor_name":          (str,   "unknown"),
-    "invoice_amount":       (float, 0.0),
-    "approved_amount_po":   (float, 0.0),
-    "paid_amount":          (float, 0.0),
-    "unit_price":           (float, 0.0),
-    "quantity":             (float, 1.0),
+
+    # Invoice identifiers
+    "invoice_id": (str, None),
+
+    # Vendor info
+    "vendor_id": (str, "unknown"),
+    "vendor_name": (str, "unknown"),
+
+    # Financials
+    "invoice_amount": (float, 0.0),
+    "approved_amount_po": (float, 0.0),
+    "paid_amount": (float, 0.0),
+
+    # Quantity details
+    "quantity": (float, 1.0),
     "approved_quantity_po": (float, 1.0),
-    "invoice_date":         (str,   None),
-    "item_name":            (str,   None),
+    "unit_price": (float, 0.0),
+
+    # Invoice metadata
+    "invoice_date": (str, None),
+    "item_name": (str, "unknown"),
+
+    # Graph metadata
+    "bank_account": (str, "unknown"),
+    "gst_number": (str, "unknown"),
+    "vendor_address": (str, "unknown"),
 }
 
-CRITICAL_FIELDS  = {"invoice_amount", "vendor_name", "invoice_date"}
-IMPORTANT_FIELDS = {"approved_amount_po", "paid_amount", "quantity", "vendor_id"}
-OPTIONAL_FIELDS  = {"unit_price", "approved_quantity_po", "item_name", "invoice_id"}
-PO_FIELDS        = {"approved_amount_po", "approved_quantity_po"}
+# =============================================================================
+# FIELD GROUPS
+# =============================================================================
 
+CRITICAL_FIELDS = {
+    "invoice_amount",
+    "vendor_name",
+    "invoice_date",
+}
 
-def compute_confidence(row: dict, po_col_was_present: bool = True) -> float:
+IMPORTANT_FIELDS = {
+    "vendor_id",
+    "approved_amount_po",
+    "paid_amount",
+    "quantity",
+}
+
+OPTIONAL_FIELDS = {
+    "invoice_id",
+    "item_name",
+    "unit_price",
+    "approved_quantity_po",
+}
+
+PO_FIELDS = {
+    "approved_amount_po",
+    "approved_quantity_po",
+}
+
+# =============================================================================
+# CONFIDENCE SCORE
+# =============================================================================
+
+def compute_confidence(
+    row: dict,
+    po_col_was_present: bool = True
+) -> float:
+
     score = 1.0
 
-    for f in CRITICAL_FIELDS:
-        val = row.get(f)
-        if val is None or val == "" or val == 0.0 or val == "unknown":
+    # -------------------------------------------------------------------------
+    # CRITICAL FIELDS
+    # -------------------------------------------------------------------------
+
+    for field in CRITICAL_FIELDS:
+
+        value = row.get(field)
+
+        if (
+            value is None or
+            value == "" or
+            value == 0.0 or
+            value == "unknown"
+        ):
             score -= 0.20
 
-    for f in IMPORTANT_FIELDS:
-        if f in PO_FIELDS and not po_col_was_present:
+    # -------------------------------------------------------------------------
+    # IMPORTANT FIELDS
+    # -------------------------------------------------------------------------
+
+    for field in IMPORTANT_FIELDS:
+
+        if (
+            field in PO_FIELDS and
+            not po_col_was_present
+        ):
             continue
-        val = row.get(f)
-        if val is None or val == "" or val == 0.0:
+
+        value = row.get(field)
+
+        if (
+            value is None or
+            value == "" or
+            value == 0.0
+        ):
             score -= 0.08
 
-    for f in OPTIONAL_FIELDS:
-        val = row.get(f)
-        if val is None or val == "":
+    # -------------------------------------------------------------------------
+    # OPTIONAL FIELDS
+    # -------------------------------------------------------------------------
+
+    for field in OPTIONAL_FIELDS:
+
+        value = row.get(field)
+
+        if value is None or value == "":
             score -= 0.02
 
-    return round(max(0.0, min(1.0, score)), 2)
+    # -------------------------------------------------------------------------
+    # CLAMP
+    # -------------------------------------------------------------------------
+
+    score = max(0.0, min(1.0, score))
+
+    return round(score, 2)

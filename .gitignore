@@ -19,13 +19,14 @@ nextjs-frontend/.env
 nextjs-frontend/.env.local
 nextjs-frontend/.env.production
 
-# ── ML model files (too large for git) ───────────────────────────────────────
-backend/models/*.pkl
+# ── ML model files — KEEP in git so the app works after clone ─────────────────
+# backend/models/*.pkl   <-- intentionally NOT ignored
 
 # ── Next.js ───────────────────────────────────────────────────────────────────
 nextjs-frontend/node_modules/
 nextjs-frontend/.next/
 nextjs-frontend/out/
+nextjs-frontend/tsconfig.tsbuildinfo
 
 # ── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store
@@ -34,3 +35,5 @@ Thumbs.db
 # ── IDE ───────────────────────────────────────────────────────────────────────
 .vscode/
 .idea/
+backend/models/
+backend/models/

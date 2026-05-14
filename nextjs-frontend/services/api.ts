@@ -11,6 +11,28 @@ export const uploadInvoices = (file: File) => {
   });
 };
 
+export const fetchKPI = () =>
+  api.get<{
+    total: number; fraud_detected: number; blocked: number;
+    review: number; approved: number; fraud_rate: number;
+    amount_saved: number; critical_count: number;
+    high_count: number; avg_risk_score: number;
+  }>("/kpi").then((r) => r.data);
+
+export const fetchAlerts = (page = 1, perPage = 50, severity?: string) =>
+  api.get<{ alerts: Invoice[]; total: number; page: number; per_page: number }>(
+    "/alerts",
+    { params: { page, per_page: perPage, ...(severity ? { severity } : {}) } }
+  ).then((r) => r.data);
+
+export const fetchTransactions = (
+  page = 1, perPage = 50, decision?: string, minRisk?: number
+) =>
+  api.get<{ transactions: Invoice[]; total: number; page: number; per_page: number }>(
+    "/transactions",
+    { params: { page, per_page: perPage, ...(decision ? { decision } : {}), ...(minRisk ? { min_risk: minRisk } : {}) } }
+  ).then((r) => r.data);
+
 export const askCopilot = async (question: string, context: string) => {
   const res = await api.post<{ answer: string }>("/copilot", { question, context });
   return res.data;

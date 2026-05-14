@@ -1,241 +1,234 @@
 """
 rule_engine.py
 --------------
-Deterministic fraud rule engine.
+Enterprise procurement fraud rule engine.
 
-All thresholds are imported from config.py — no magic numbers here.
-co_occurrence_score is on 0-100 scale (produced by graph_engine.py).
-rule_score output is 0-100, capped.
-force_escalate = True triggers BLOCK in predict.py when score >= 50.
+All rules are vectorized (no iterrows).
+Scores are deterministic and capped at MAX_RULE_SCORE.
+Flags are deduplicated strings, not lists.
+Fraud type is assigned once from a priority-ordered check.
 """
 
+import logging
+
 import pandas as pd
+
 from config import (
-    APPROVAL_THRESHOLD,
     OVERBILLING_RATIO,
     QUANTITY_MISMATCH_RATIO,
     OVERPAYMENT_RATIO,
     UNDERBILLING_RATIO,
     HIGH_DEVIATION_IQR,
     EXTREME_DEVIATION_IQR,
-    RAPID_RESUBMISSION_DAYS,
-    INVOICE_BURST_COUNT,
-    CO_OCCURRENCE_HIGH,
-    FIRST_INVOICE_MULTIPLIER,
-    GRAPH_HIGH_DEGREE,
-    GRAPH_SHELL_CLUSTER_SIZE,
-    SPLIT_CLUSTER_RATIO,
-    SPLIT_MIN_INVOICES,
     THRESHOLD_HUG_LOW,
     THRESHOLD_HUG_HIGH,
+    APPROVAL_THRESHOLD,
+    GRAPH_HIGH_DEGREE,
+    CO_OCCURRENCE_HIGH,
+    MAX_RULE_SCORE,
+    FIRST_INVOICE_MULTIPLIER,
 )
 
-# CO_OCCURRENCE_HIGH in config is 0.70 (old 0-1 scale).
-# graph_engine now outputs 0-100, so convert threshold once here.
-_CO_OCC_THRESHOLD = CO_OCCURRENCE_HIGH * 100  # = 70.0
+log = logging.getLogger(__name__)
 
-RULE_WEIGHTS = {
-    # Network / identity fraud — highest weights
-    "Shell Vendor Cluster":          40,
-    "Shared Bank Account":           32,
-    "Invoice Splitting Ring":        35,
-    "Vendor Collusion Pattern":      30,
-    "Threshold Avoidance":           28,
-    "Abnormal Vendor Connectivity":  22,
-    "High Risk Vendor Cluster":      30,
-    "Circular Payment Pattern":      28,
-    # Financial anomalies
-    "Overbilling":                   25,
-    "Extreme Deviation":             22,
-    "Overpayment":                   20,
-    "Duplicate Invoice":             32,
-    "Missing PO":                    18,
-    "Quantity Mismatch":             18,
-    "High Deviation":                14,
-    "Underbilling":                  12,
-    "Overpriced vs Benchmark":       20,
-    "Suspiciously Low Price":        12,
-    "First Invoice High Value":      18,
+# ---------------------------------------------------------------------------
+# Rule weight registry
+# ---------------------------------------------------------------------------
+RULE_WEIGHTS: dict[str, int] = {
+    # Financial
+    "Duplicate Invoice":        35,
+    "Overbilling":              28,
+    "Extreme Deviation":        25,
+    "Overpriced vs Benchmark":  25,
+    "Split Invoice Pattern":    25,
+    "Threshold Avoidance":      24,
+    "Overpayment":              22,
+    "Threshold Hugging":        22,
+    "Quantity Mismatch":        20,
+    "First Invoice High Value": 18,
+    "High Deviation":           15,
+    "Suspiciously Low Price":   15,
+    "Underbilling":             13,
+    # Identity / vendor
+    "Bank Account Mismatch":    35,
+    "Shared Bank Account":      30,
+    "Shared GST":               28,
+    "Shell Vendor":             30,
+    "Unknown Vendor":           20,
+    "Vendor Collusion":         32,
+    # Graph / network
+    "Coordinated Activity":     25,
     # Behavioral
-    "Rapid Sequential Invoices":     12,
-    "Repeated Coordinated Timing":   16,
-    "Invoice Burst":                 14,
-    "Weekend Invoice":                8,
-    "Rounded Amount":                 8,
-    "Payment Before Invoice":        18,
-    # Data quality (informational only)
-    "Low Data Confidence":            0,
+    "Payment Before Invoice":   20,
+    "Invoice Burst":            15,
+    "Rapid Resubmission":       12,
+    "Rounded Amount":           10,
+    "Weekend Invoice":           8,
+    # PO / process
+    "Missing PO":               18,
+    # Data quality (no score impact)
+    "Low Data Confidence":       0,
 }
 
-CRITICAL_COMBINATIONS = [
-    {"Shell Vendor Cluster",    "Shared Bank Account"},
-    {"Invoice Splitting Ring",  "Threshold Avoidance"},
-    {"Vendor Collusion Pattern","Repeated Coordinated Timing"},
-    {"Circular Payment Pattern","Shell Vendor Cluster"},
-    {"Duplicate Invoice",       "Overbilling"},
-    {"Shell Vendor Cluster",    "Invoice Splitting Ring"},
-    {"Shared Bank Account",     "Extreme Deviation"},
+# Critical combos → force_escalate = True
+CRITICAL_COMBINATIONS: list[frozenset] = [
+    frozenset({"Duplicate Invoice",    "Overpayment"}),
+    frozenset({"Overbilling",          "Split Invoice Pattern"}),
+    frozenset({"Unknown Vendor",       "Bank Account Mismatch"}),
+    frozenset({"Unknown Vendor",       "Extreme Deviation"}),
+    frozenset({"Bank Account Mismatch","Payment Before Invoice"}),
+    frozenset({"Shared Bank Account",  "Unknown Vendor"}),
+    frozenset({"Shell Vendor",         "Shared Bank Account"}),
+    frozenset({"Threshold Avoidance",  "Split Invoice Pattern"}),
+    frozenset({"Vendor Collusion",     "Shared GST"}),
+    frozenset({"Duplicate Invoice",    "Rapid Resubmission"}),
 ]
 
-
-def _flag(df: pd.DataFrame, mask: pd.Series, label: str) -> None:
-    """Apply a rule flag in-place. mask must be boolean Series."""
-    mask = mask.fillna(False).astype(bool)
-    weight = RULE_WEIGHTS.get(label, 5)
-    df.loc[mask, "rule_score"]  += weight
-    df.loc[mask, "rule_flags"]  += label + ", "
+# Fraud type priority (first match wins)
+_FRAUD_PRIORITY = [
+    ("Vendor Collusion",        "Coordinated Procurement Fraud"),
+    ("Shell Vendor",            "Shell Vendor Fraud"),
+    ("Shared Bank Account",     "Shell Vendor Fraud"),
+    ("Shared GST",              "Shell Vendor Fraud"),
+    ("Threshold Avoidance",     "Threshold Avoidance Fraud"),
+    ("Split Invoice Pattern",   "Invoice Splitting Fraud"),
+    ("Unknown Vendor",          "Shell Vendor Fraud"),
+    ("Bank Account Mismatch",   "Shell Vendor Fraud"),
+    ("Duplicate Invoice",       "Duplicate Invoice Fraud"),
+    ("Overbilling",             "Overbilling Fraud"),
+    ("Overpriced vs Benchmark", "Overbilling Fraud"),
+    ("Overpayment",             "Overpayment Fraud"),
+    ("Coordinated Activity",    "Coordinated Procurement Fraud"),
+]
 
 
 def apply_rules(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    df["rule_score"]     = 0.0
     df["rule_flags"]     = ""
+    df["rule_score"]     = 0.0
     df["force_escalate"] = False
 
-    # ── Network / identity rules ──────────────────────────────────────────────
+    def flag(mask: pd.Series, label: str) -> None:
+        """Append label to rule_flags and add weight to rule_score."""
+        m = mask.fillna(False).astype(bool)
+        if not m.any():
+            return
+        weight = RULE_WEIGHTS.get(label, 5)
+        df.loc[m, "rule_flags"] += label + ", "
+        df.loc[m, "rule_score"] += weight
 
-    # Shell vendor: shared identifier(s) + meaningful graph cluster
-    if "shell_vendor_flag" in df.columns and "vendor_degree" in df.columns:
-        _flag(df,
-              (df["shell_vendor_flag"] == 1) &
-              (df["vendor_degree"] >= GRAPH_HIGH_DEGREE) &
-              (df["cluster_size"].fillna(1) >= GRAPH_SHELL_CLUSTER_SIZE),
-              "Shell Vendor Cluster")
-
-    # Shared bank account (standalone signal — lower threshold)
-    if "shared_bank_flag" in df.columns:
-        _flag(df, df["shared_bank_flag"] == 1, "Shared Bank Account")
-
-    # Invoice splitting ring
-    if "split_cluster_flag" in df.columns and "window_invoice_count" in df.columns:
-        _flag(df,
-              (df["split_cluster_flag"] == 1) &
-              (df["window_invoice_count"] >= SPLIT_MIN_INVOICES) &
-              (df["cluster_amount_ratio"].fillna(0) > SPLIT_CLUSTER_RATIO),
-              "Invoice Splitting Ring")
-
-    # Vendor collusion: high co-occurrence + low entropy (coordinated, repetitive)
-    if "co_occurrence_score" in df.columns and "entropy_score" in df.columns:
-        _flag(df,
-              (df["co_occurrence_score"] >= _CO_OCC_THRESHOLD) &
-              (df["entropy_score"] < 1.8),
-              "Vendor Collusion Pattern")
-
-    # Abnormal connectivity
-    if "vendor_degree" in df.columns:
-        _flag(df, df["vendor_degree"] >= GRAPH_HIGH_DEGREE + 1, "Abnormal Vendor Connectivity")
-
-    # High-risk cluster
-    if "cluster_size" in df.columns and "co_occurrence_score" in df.columns:
-        _flag(df,
-              (df["cluster_size"] >= 5) &
-              (df["co_occurrence_score"] >= _CO_OCC_THRESHOLD),
-              "High Risk Vendor Cluster")
-
-    # Coordinated timing: many vendors active same day + high co-occurrence
-    if "window_vendor_count" in df.columns and "co_occurrence_score" in df.columns:
-        _flag(df,
-              (df["window_vendor_count"] >= 5) &
-              (df["co_occurrence_score"] >= _CO_OCC_THRESHOLD * 0.8),
-              "Repeated Coordinated Timing")
-
-    # Circular payment (optional column)
-    if "circular_transaction_flag" in df.columns:
-        _flag(df, df["circular_transaction_flag"] == 1, "Circular Payment Pattern")
-
-    # ── Threshold avoidance ───────────────────────────────────────────────────
-    if "window_invoice_count" in df.columns and "invoice_amount" in df.columns:
-        thr = df["approval_threshold"] if "approval_threshold" in df.columns else APPROVAL_THRESHOLD
-        ratio = df["invoice_amount"] / (pd.Series(thr, index=df.index) if not isinstance(thr, pd.Series) else thr).replace(0, pd.NA)
-        _flag(df,
-              (df["window_invoice_count"] >= SPLIT_MIN_INVOICES) &
-              (df["cluster_amount_ratio"].fillna(0) > 1.2) &
-              ratio.between(THRESHOLD_HUG_LOW, THRESHOLD_HUG_HIGH, inclusive="both"),
-              "Threshold Avoidance")
-
-    # ── Financial rules ───────────────────────────────────────────────────────
-
+    # ── Financial ─────────────────────────────────────────────────────────────
     if "amount_vs_po" in df.columns:
-        _flag(df, df["amount_vs_po"] > OVERBILLING_RATIO, "Overbilling")
+        flag(df["amount_vs_po"] > OVERBILLING_RATIO,  "Overbilling")
+        flag(df["underbilling_flag"] == 1,             "Underbilling")
 
     if "quantity_vs_po" in df.columns:
-        _flag(df, df["quantity_vs_po"] > QUANTITY_MISMATCH_RATIO, "Quantity Mismatch")
+        flag(df["quantity_vs_po"] > QUANTITY_MISMATCH_RATIO, "Quantity Mismatch")
 
     if "missing_po" in df.columns:
-        _flag(df, df["missing_po"] == 1, "Missing PO")
+        flag(df["missing_po"] == 1, "Missing PO")
 
     if "is_duplicate" in df.columns:
-        _flag(df, df["is_duplicate"] == 1, "Duplicate Invoice")
+        flag(df["is_duplicate"] == 1, "Duplicate Invoice")
 
-    # High Deviation and Extreme Deviation are mutually exclusive
+    # Mutually exclusive deviation rules
     if "amount_deviation" in df.columns and "extreme_deviation" in df.columns:
-        _flag(df,
-              (df["amount_deviation"] > HIGH_DEVIATION_IQR) & (df["extreme_deviation"] != 1),
-              "High Deviation")
-        _flag(df, df["extreme_deviation"] == 1, "Extreme Deviation")
-    elif "amount_deviation" in df.columns:
-        _flag(df,
-              (df["amount_deviation"] > HIGH_DEVIATION_IQR) & (df["amount_deviation"] <= EXTREME_DEVIATION_IQR),
-              "High Deviation")
-        _flag(df, df["amount_deviation"] > EXTREME_DEVIATION_IQR, "Extreme Deviation")
+        flag(
+            (df["amount_deviation"] > HIGH_DEVIATION_IQR) & (df["extreme_deviation"] != 1),
+            "High Deviation",
+        )
+        flag(df["extreme_deviation"] == 1, "Extreme Deviation")
 
     if "payment_ratio" in df.columns:
-        _flag(df, df["payment_ratio"] > OVERPAYMENT_RATIO, "Overpayment")
+        flag(df["payment_ratio"] > OVERPAYMENT_RATIO, "Overpayment")
 
-    if "underbilling_flag" in df.columns:
-        _flag(df, df["underbilling_flag"] == 1, "Underbilling")
-
-    if "price_flag" in df.columns:
-        _flag(df, df["price_flag"] == "OVERPRICED",  "Overpriced vs Benchmark")
-        _flag(df, df["price_flag"] == "UNDERPRICED", "Suspiciously Low Price")
+    # Threshold hugging: invoice at 90–99.9% of approval limit
+    if "invoice_amount" in df.columns:
+        ratio = df["invoice_amount"] / APPROVAL_THRESHOLD
+        flag(ratio.between(THRESHOLD_HUG_LOW, THRESHOLD_HUG_HIGH), "Threshold Hugging")
 
     # First invoice high value
-    if "vendor_invoice_count" in df.columns and "invoice_amount" in df.columns:
-        dataset_median = df["invoice_amount"].median()
-        _flag(df,
-              (df["vendor_invoice_count"] == 1) &
-              (df["invoice_amount"] > FIRST_INVOICE_MULTIPLIER * dataset_median),
-              "First Invoice High Value")
+    if "vendor_invoice_count" in df.columns:
+        dataset_median = float(df["invoice_amount"].median())
+        flag(
+            (df["vendor_invoice_count"] == 1) &
+            (df["invoice_amount"] > FIRST_INVOICE_MULTIPLIER * dataset_median),
+            "First Invoice High Value",
+        )
 
-    # ── Behavioral rules ──────────────────────────────────────────────────────
+    # ── Split / threshold avoidance ───────────────────────────────────────────
+    if "split_cluster_flag" in df.columns:
+        flag(df["split_cluster_flag"] == 1, "Split Invoice Pattern")
 
-    # FIX: was (>= 0 AND <= 1) which catches ALL invoices on first submission.
-    # Correct: gap must be > 0 (not the first invoice) AND <= threshold.
-    if "invoice_gap_days" in df.columns:
-        _flag(df,
-              (df["invoice_gap_days"] > 0) & (df["invoice_gap_days"] <= RAPID_RESUBMISSION_DAYS),
-              "Rapid Sequential Invoices")
+    if "cluster_amount_ratio" in df.columns and "window_invoice_count" in df.columns:
+        cluster_total = df["cluster_amount_ratio"] * (df["vendor_mean"] + 1.0)
+        flag(
+            (df["invoice_amount"] < APPROVAL_THRESHOLD) &
+            (cluster_total > APPROVAL_THRESHOLD) &
+            (df["window_invoice_count"] >= 2),
+            "Threshold Avoidance",
+        )
 
-    if "invoice_burst" in df.columns:
-        _flag(df, df["invoice_burst"] == 1, "Invoice Burst")
+    # ── Benchmark ─────────────────────────────────────────────────────────────
+    if "price_flag" in df.columns:
+        flag(df["price_flag"] == "OVERPRICED",  "Overpriced vs Benchmark")
+        flag(df["price_flag"] == "UNDERPRICED", "Suspiciously Low Price")
 
-    if "weekend_invoice" in df.columns:
-        _flag(df, df["weekend_invoice"] == 1, "Weekend Invoice")
+    # ── Behavioral ────────────────────────────────────────────────────────────
+    if "rounded_amount_flag"    in df.columns: flag(df["rounded_amount_flag"]    == 1, "Rounded Amount")
+    if "payment_before_invoice" in df.columns: flag(df["payment_before_invoice"] == 1, "Payment Before Invoice")
+    if "weekend_invoice"        in df.columns: flag(df["weekend_invoice"]        == 1, "Weekend Invoice")
+    if "rapid_resubmission"     in df.columns: flag(df["rapid_resubmission"]     == 1, "Rapid Resubmission")
+    if "invoice_burst"          in df.columns: flag(df["invoice_burst"]          == 1, "Invoice Burst")
 
-    if "rounded_amount_flag" in df.columns:
-        _flag(df, df["rounded_amount_flag"] == 1, "Rounded Amount")
+    # ── Identity / vendor ─────────────────────────────────────────────────────
+    if "unknown_vendor"        in df.columns: flag(df["unknown_vendor"]        == 1, "Unknown Vendor")
+    if "bank_account_mismatch" in df.columns: flag(df["bank_account_mismatch"] == 1, "Bank Account Mismatch")
+    if "shared_bank_flag"      in df.columns: flag(df["shared_bank_flag"]      == 1, "Shared Bank Account")
+    if "shared_gst_flag"       in df.columns: flag(df["shared_gst_flag"]       == 1, "Shared GST")
+    if "shell_vendor_flag"     in df.columns: flag(df["shell_vendor_flag"]     == 1, "Shell Vendor")
 
-    if "payment_before_invoice" in df.columns:
-        _flag(df, df["payment_before_invoice"] == 1, "Payment Before Invoice")
+    # ── Graph / network ───────────────────────────────────────────────────────
+    if "co_occurrence_score" in df.columns:
+        flag(df["co_occurrence_score"] >= CO_OCCURRENCE_HIGH, "Coordinated Activity")
 
-    # ── Data quality (informational, zero weight) ─────────────────────────────
+    if "vendor_degree" in df.columns:
+        shared = (
+            df.get("shared_bank_flag",    pd.Series(0, index=df.index)).fillna(0) |
+            df.get("shared_gst_flag",     pd.Series(0, index=df.index)).fillna(0) |
+            df.get("shared_address_flag", pd.Series(0, index=df.index)).fillna(0)
+        ).astype(bool)
+        flag(
+            (df["vendor_degree"] >= GRAPH_HIGH_DEGREE) & shared,
+            "Vendor Collusion",
+        )
+
+    # ── Data quality ──────────────────────────────────────────────────────────
     if "data_confidence" in df.columns:
-        _flag(df, df["data_confidence"] < 0.35, "Low Data Confidence")
+        flag(df["data_confidence"] < 0.35, "Low Data Confidence")
 
-    # ── Cap and clean ─────────────────────────────────────────────────────────
-    df["rule_score"] = df["rule_score"].clip(0, 100)
+    # ── Cap score ─────────────────────────────────────────────────────────────
+    df["rule_score"] = df["rule_score"].clip(0, MAX_RULE_SCORE)
 
+    # ── Critical combination detection (vectorized) ───────────────────────────
+    def _has_critical(flags_str: str) -> bool:
+        active = frozenset(f.strip() for f in flags_str.split(",") if f.strip())
+        return any(combo.issubset(active) for combo in CRITICAL_COMBINATIONS)
+
+    df["force_escalate"] = df["rule_flags"].apply(_has_critical)
+
+    # ── Clean flags string ────────────────────────────────────────────────────
     df["rule_flags"] = (
         df["rule_flags"]
         .str.strip(", ")
         .pipe(lambda s: s.where(s.str.strip() != "", other="None"))
     )
 
-    # ── Critical combination detection → force_escalate ───────────────────────
-    def _check_combos(flags_str: str) -> bool:
-        active = {f.strip() for f in flags_str.split(",") if f.strip() and f.strip() != "None"}
-        return any(combo.issubset(active) for combo in CRITICAL_COMBINATIONS)
+    # ── Fraud type (priority-ordered, vectorized) ─────────────────────────────
+    df["fraud_type"] = "Normal"
+    for flag_name, fraud_label in reversed(_FRAUD_PRIORITY):
+        mask = df["rule_flags"].str.contains(flag_name, regex=False, na=False)
+        df.loc[mask, "fraud_type"] = fraud_label
 
-    df["force_escalate"] = df["rule_flags"].apply(_check_combos)
-
+    # ML-only anomaly fallback (set later in predict.py if still "Normal")
     return df
