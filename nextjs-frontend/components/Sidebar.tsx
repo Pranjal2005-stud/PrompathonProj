@@ -2,8 +2,8 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  LayoutDashboard, Bell, Building2, ClipboardList, Search,
-  FileSearch, BarChart2, FileDown, Settings, ShieldCheck,
+  LayoutDashboard, Bell, ClipboardList, Search,
+  FileSearch, FileDown, Settings, ShieldCheck,
   ChevronLeft, ChevronRight, ChevronDown,
 } from "lucide-react";
 import { jsPDF } from "jspdf";
@@ -13,25 +13,23 @@ import type { PageId, Invoice } from "@/types";
 
 const SECTIONS = [
   {
-    label: "Monitoring",
+    label: "Overview",
     items: [
       { icon: LayoutDashboard, label: "Dashboard", id: "dashboard" as PageId },
-      { icon: Bell,            label: "Alerts",    id: "alerts"    as PageId, badge: true },
-      { icon: Building2,       label: "Vendors",   id: "vendors"   as PageId },
     ],
   },
   {
     label: "Investigation",
     items: [
-      { icon: ClipboardList, label: "Queue",     id: "queue"    as PageId },
-      { icon: Search,        label: "Forensics", id: "forensic" as PageId },
+      { icon: Bell,           label: "Alerts",   id: "alerts"    as PageId, badge: true },
+      { icon: ClipboardList,   label: "Queue",     id: "queue"    as PageId },
+      { icon: Search,          label: "Search",   id: "forensic"  as PageId },
     ],
   },
   {
-    label: "Analytics",
+    label: "Data",
     items: [
       { icon: FileSearch, label: "Invoices",  id: "invoices"  as PageId },
-      { icon: BarChart2,  label: "Analytics", id: "analytics" as PageId },
     ],
   },
 ];
@@ -184,7 +182,11 @@ export default function Sidebar() {
                         onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = "transparent"; }}
                       >
                         {isActive && (
-                          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-r-full bg-blue-500" />
+                          <motion.span
+                            layoutId="sidebarActive"
+                            className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-6 rounded-r-full"
+                            style={{ background: "linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%)" }}
+                          />
                         )}
                         <Icon size={15} className="shrink-0" style={{ color: isActive ? "#2563eb" : "#94a3b8" }} />
                         <AnimatePresence>
@@ -269,31 +271,6 @@ export default function Sidebar() {
           </button>
         </div>
       </nav>
-
-      {/* AI Status */}
-      <AnimatePresence>
-        {!collapsed && (
-          <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="px-3 pb-4 shrink-0"
-          >
-            <div className="rounded-xl p-3" style={{ background: "#eff6ff", border: "1px solid #bfdbfe" }}>
-              <div className="flex items-center gap-2 mb-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                <p className="text-xs font-medium text-slate-600">AI Engine Active</p>
-              </div>
-              <div className="h-1 rounded-full overflow-hidden bg-blue-100">
-                <motion.div
-                  className="h-full rounded-full bg-blue-500"
-                  initial={{ width: "0%" }} animate={{ width: "78%" }}
-                  transition={{ duration: 1.2, delay: 0.3 }}
-                />
-              </div>
-              <p className="text-[10px] mt-1.5 text-slate-400">IsolationForest · 78% confidence</p>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </motion.aside>
   );
 }

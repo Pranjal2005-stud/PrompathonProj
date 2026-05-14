@@ -1,55 +1,9 @@
 "use client";
-import { useState, useEffect, useCallback, memo } from "react";
+import { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, Bell, X, AlertCircle, ChevronDown, Loader2, ShieldAlert } from "lucide-react";
+import { Upload, Bell, X, AlertCircle, ChevronDown, Loader2 } from "lucide-react";
 import { useAppStore } from "@/store";
 import { uploadInvoices } from "@/services/api";
-
-const TICKER_MESSAGES = [
-  "CRITICAL: Shell vendor cluster detected — immediate review required",
-  "HIGH: Split invoice ring identified across 3 vendors",
-  "ALERT: Bank account mismatch detected on multiple invoices",
-  "WARNING: Duplicate invoice pattern — same vendor, same amount",
-  "CRITICAL: Unknown vendor submitted high-value invoice without PO",
-];
-
-const FraudTicker = memo(function FraudTicker() {
-  const invoices = useAppStore((s) => s.invoices);
-  const [idx, setIdx] = useState(0);
-  const blocked = invoices.filter((d) => d.decision === "BLOCK");
-  const messages =
-    blocked.length > 0
-      ? blocked.slice(0, 5).map(
-          (d) => `ALERT: ${d.vendor_name} — ${d.reason ?? "Fraud detected"} (Risk: ${(d.risk_score ?? 0).toFixed(0)})`
-        )
-      : TICKER_MESSAGES;
-
-  useEffect(() => {
-    const t = setInterval(() => setIdx((i) => (i + 1) % messages.length), 4000);
-    return () => clearInterval(t);
-  }, [messages.length]);
-
-  return (
-    <div className="flex-1 min-w-0 overflow-hidden flex items-center gap-3">
-      <div className="flex items-center gap-1.5 shrink-0 px-2 py-1 rounded-lg bg-red-50">
-        <ShieldAlert size={11} className="text-red-600" />
-        <span className="text-[10px] font-bold uppercase tracking-widest text-red-600">Live</span>
-      </div>
-      <div className="flex-1 overflow-hidden">
-        <AnimatePresence mode="wait">
-          <motion.p
-            key={idx}
-            initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.25 }}
-            className="text-xs text-slate-500 truncate"
-          >
-            {messages[idx]}
-          </motion.p>
-        </AnimatePresence>
-      </div>
-    </div>
-  );
-});
 
 export default function Navbar() {
   const { invoices, loading, setLoading, setError, setInvoices, addToast } = useAppStore();
@@ -86,11 +40,9 @@ export default function Navbar() {
 
   return (
     <header
-      className="shrink-0 sticky top-0 z-30 flex items-center gap-4 px-6 bg-white"
+      className="shrink-0 sticky top-0 z-30 flex items-center justify-between px-6 bg-white"
       style={{ borderBottom: "1px solid #e2e8f0", height: "60px", boxShadow: "0 1px 0 #f1f5f9" }}
     >
-      <FraudTicker />
-
       <div className="flex items-center gap-2 shrink-0">
         <label
           className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white cursor-pointer hover:opacity-90 active:scale-95 shrink-0"

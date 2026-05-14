@@ -1,7 +1,7 @@
 "use client";
 import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
-import { Zap, RotateCcw, AlertCircle, ClipboardList, Search } from "lucide-react";
+import { Zap, RotateCcw, AlertCircle, ClipboardList, Search, ShieldCheck, Bot } from "lucide-react";
 import { useMemo, useState, memo } from "react";
 import { useAppStore } from "@/store";
 import { DEMO_DATA } from "@/lib/demo-data";
@@ -11,6 +11,7 @@ import MetricCard from "@/components/MetricCard";
 import InvoiceTable from "@/components/InvoiceTable";
 import ToastContainer from "@/components/ToastContainer";
 import { Skeleton } from "@/components/ui/primitives";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/Tabs";
 import type { Invoice } from "@/types";
 
 // Dynamic imports for heavy components
@@ -244,36 +245,72 @@ export default function AppShell() {
 
           {(activePage === "dashboard" || activePage === "invoices") && (
             <div className="space-y-6">
-              {/* 4 KPI cards */}
-              <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-4 gap-5">
+              {/* Hero / Empty State */}
+              {total === 0 && !loading && (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="flex flex-col items-center justify-center py-20 text-center"
+                >
+                  <div className="w-24 h-24 rounded-2xl flex items-center justify-center mb-6"
+                    style={{ background: "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)", border: "1px solid #bfdbfe" }}>
+                    <ShieldCheck size={40} className="text-blue-600" />
+                  </div>
+                  <h2 className="text-2xl font-semibold text-slate-800 mb-2">FraudShield</h2>
+                  <p className="text-slate-500 max-w-md mb-6">
+                    Upload your invoice CSV to start AI-powered fraud detection. Identify high-risk transactions and prevent financial loss.
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-50 text-emerald-700 text-sm" style={{ border: "1px solid #86efac" }}>
+                      <Zap size={14} /> Real-time Analysis
+                    </div>
+                    <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-50 text-purple-700 text-sm" style={{ border: "1px solid #c4b5fd" }}>
+                      <Bot size={14} /> AI-Powered
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* 2 KPI cards - simplified */}
+              {total > 0 && (
+              <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-2 gap-4 max-w-2xl">
                 {[
-                  { type: "invoices" as const, title: "Total Invoices",   value: total,         sub: "Processed this session"    },
-                  { type: "blocked"  as const, title: "Fraud Detected",   value: fraudDetected, sub: `${fraudRate}% · risk ≥ 60` },
-                  { type: "vendors"  as const, title: "Blocked Payments", value: blocked,       sub: "Payments stopped"          },
-                  { type: "saved"    as const, title: "Amount Saved",     value: amountSaved,   sub: "₹ leakage prevented", prefix: "₹" },
+                  { type: "invoices" as const, title: "Total Invoices", value: total, sub: "processed" },
+                  { type: "saved" as const, title: "Amount Saved", value: amountSaved, sub: "₹ prevented", prefix: "₹" },
                 ].map((m, i) => (
                   <motion.div key={m.title} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.07 }}>
                     <MetricCard {...m} loading={loading} />
                   </motion.div>
                 ))}
               </motion.div>
+              )}
 
-              {activePage === "dashboard" && (
+              {activePage === "dashboard" && total > 0 && (
                 <>
                   <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
                     <Charts />
                   </motion.div>
-                  <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}
-                    className="grid gap-5" style={{ gridTemplateColumns: "1fr 1fr", minHeight: "460px", height: "460px" }}>
-                    <AlertsPanel />
-                    <VendorHeatmap />
+
+                  {/* Tabs for Alerts & Vendor Heatmap - cleaner layout */}
+                  <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+                    <Tabs defaultValue="alerts" className="space-y-4">
+                      <TabsList>
+                        <TabsTrigger value="alerts">Fraud Alerts</TabsTrigger>
+                        <TabsTrigger value="vendors">Vendor Risk</TabsTrigger>
+                      </TabsList>
+                      <TabsContent value="alerts"><AlertsPanel /></TabsContent>
+                      <TabsContent value="vendors"><VendorHeatmap /></TabsContent>
+                    </Tabs>
                   </motion.div>
                 </>
               )}
 
-              <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
+              {/* Invoice table */}
+              {total > 0 && (
+              <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
                 <InvoiceTable />
               </motion.div>
+              )}
             </div>
           )}
         </main>

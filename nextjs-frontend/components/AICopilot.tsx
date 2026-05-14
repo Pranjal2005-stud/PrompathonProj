@@ -82,6 +82,7 @@ const AICopilot = memo(function AICopilot() {
 
   return (
     <>
+      {/* Floating button to open chat */}
       <AnimatePresence>
         {!chatOpen && (
           <motion.button

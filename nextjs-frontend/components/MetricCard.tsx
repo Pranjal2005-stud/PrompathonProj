@@ -1,47 +1,10 @@
 "use client";
 import { memo } from "react";
 import { motion } from "framer-motion";
-import { FileText, ShieldX, Building2, DollarSign } from "lucide-react";
-import { useCountUp } from "@/hooks/useCountUp";
 import { Skeleton } from "@/components/ui/primitives";
 
-const CFG = {
-  invoices: {
-    icon: FileText,
-    iconColor: "#2563eb",
-    iconBg: "#dbeafe",
-    accent: "#2563eb",
-    border: "#bfdbfe",
-    bg: "#f0f6ff",
-  },
-  blocked: {
-    icon: ShieldX,
-    iconColor: "#dc2626",
-    iconBg: "#fee2e2",
-    accent: "#dc2626",
-    border: "#fecaca",
-    bg: "#fff5f5",
-  },
-  vendors: {
-    icon: Building2,
-    iconColor: "#d97706",
-    iconBg: "#fef3c7",
-    accent: "#d97706",
-    border: "#fde68a",
-    bg: "#fffbeb",
-  },
-  saved: {
-    icon: DollarSign,
-    iconColor: "#059669",
-    iconBg: "#d1fae5",
-    accent: "#059669",
-    border: "#a7f3d0",
-    bg: "#f0fdf8",
-  },
-} as const;
-
 interface MetricCardProps {
-  type: keyof typeof CFG;
+  type?: string;
   title: string;
   value: number;
   sub?: string;
@@ -50,60 +13,41 @@ interface MetricCardProps {
 }
 
 const MetricCard = memo(function MetricCard({
-  type, title, value, sub, loading, prefix,
+  title, value, sub, loading, prefix,
 }: MetricCardProps) {
-  const cfg = CFG[type];
-  const Icon = cfg.icon;
-  const displayed = useCountUp(value);
+  if (loading) return <Skeleton className="rounded-xl h-20" />;
 
-  if (loading) return <Skeleton className="rounded-2xl h-32" />;
-
-  // Format large numbers to avoid overflow
   const formatted = prefix
-    ? `${prefix}${displayed >= 1_00_00_000
-        ? `${(displayed / 1_00_00_000).toFixed(1)}Cr`
-        : displayed >= 1_00_000
-        ? `${(displayed / 1_00_000).toFixed(1)}L`
-        : displayed.toLocaleString("en-IN")}`
-    : displayed.toLocaleString();
+    ? `${prefix}${value >= 1_00_00_000
+        ? `${(value / 1_00_00_000).toFixed(1)}Cr`
+        : value >= 1_00_000
+        ? `${(value / 1_00_000).toFixed(1)}L`
+        : value.toLocaleString("en-IN")}`
+    : value.toLocaleString();
+
+  const isSaved = title.toLowerCase().includes("saved");
+  const isInvoices = title.toLowerCase().includes("invoice");
 
   return (
     <motion.div
-      whileHover={{ y: -2, boxShadow: `0 12px 32px ${cfg.accent}18` }}
-      transition={{ duration: 0.18 }}
-      className="rounded-2xl p-5 cursor-default overflow-hidden"
+      whileHover={{ y: -2, boxShadow: "0 8px 24px rgba(37,99,235,0.15)" }}
+      transition={{ duration: 0.2 }}
+      className="rounded-xl p-4 cursor-default"
       style={{
-        background: cfg.bg,
-        border: `1px solid ${cfg.border}`,
-        boxShadow: `0 1px 4px ${cfg.accent}10`,
+        background: isSaved
+          ? "linear-gradient(135deg, #f0fdf4 0%, #d1fae5 100%)"
+          : isInvoices
+          ? "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)"
+          : "linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)",
+        border: "1px solid",
+        borderColor: isSaved ? "#86efac" : isInvoices ? "#93c5fd" : "#e2e8f0",
       }}
     >
-      {/* Icon + title row */}
-      <div className="flex items-center gap-2.5 mb-3">
-        <div
-          className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-          style={{ background: cfg.iconBg }}
-        >
-          <Icon size={16} style={{ color: cfg.iconColor }} />
-        </div>
-        <p className="text-xs font-semibold leading-tight" style={{ color: cfg.iconColor }}>
-          {title}
-        </p>
-      </div>
-
-      {/* Value — clamp to one line, never overflow */}
-      <p
-        className="text-2xl font-bold leading-none tracking-tight truncate"
-        style={{ color: "#0f172a" }}
-      >
-        {formatted}
+      <p className="text-xs font-medium mb-1" style={{ color: isSaved ? "#059669" : isInvoices ? "#2563eb" : "#64748b" }}>
+        {title}
       </p>
-
-      {sub && (
-        <p className="text-xs mt-1.5 truncate" style={{ color: "#64748b" }}>
-          {sub}
-        </p>
-      )}
+      <p className="text-xl font-bold text-slate-800">{formatted}</p>
+      {sub && <p className="text-xs mt-1" style={{ color: "#94a3b8" }}>{sub}</p>}
     </motion.div>
   );
 });
