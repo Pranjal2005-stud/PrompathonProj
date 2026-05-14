@@ -1,120 +1,575 @@
 """
 graph_engine.py
 ---------------
-Builds a real inter-vendor relationship graph from shared metadata
-(bank accounts, GST numbers, addresses) and computes meaningful
-network features on a consistent 0-100 scale.
 
-All output columns are on 0-100 scale EXCEPT pagerank/betweenness
-which are raw centrality values (0-1) used only internally.
+Vendor relationship graph engine for procurement fraud detection.
+
+Features:
+- vendor_degree
+- cluster_size
+- pagerank
+- shared_bank_flag
+- shared_gst_flag
+- shared_address_flag
+- shell_vendor_flag
+- co_occurrence_score
+
+Optimized for:
+- stable graph behavior
+- realistic fraud clustering
+- low false-positive shell vendors
+- fast inference
 """
 
+import hashlib
+import logging
+
 import networkx as nx
-import pandas as pd
 import numpy as np
+import pandas as pd
+
+print("GRAPH ENGINE LOADED SUCCESSFULLY")
+
+from config import (
+    GRAPH_WEIGHT_BANK,
+    GRAPH_WEIGHT_GST,
+    GRAPH_WEIGHT_ADDRESS,
+)
+
+log = logging.getLogger(__name__)
+
+# =============================================================================
+# CACHE
+# =============================================================================
+
+_GRAPH_CACHE = {}
+
+# =============================================================================
+# INVALID VALUES
+# =============================================================================
+
+INVALID_VALUES = {
+    "unknown",
+    "nan",
+    "",
+    "none",
+    "null",
+    "n/a",
+    "na",
+    "0",
+    "-",
+}
+
+# =============================================================================
+# HELPERS
+# =============================================================================
+
+def _is_invalid(val) -> bool:
+
+    val = str(val).strip().lower()
+
+    return (
+        val in INVALID_VALUES
+        or len(val) <= 1
+    )
 
 
-def enrich_with_graph_features(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
+# =============================================================================
+# CLEANING
+# =============================================================================
 
-    # Ensure required columns exist
-    for col in ["vendor_id", "bank_account", "gst_number", "vendor_address"]:
-        if col not in df.columns:
-            df[col] = "unknown"
-        df[col] = df[col].fillna("unknown").astype(str).str.strip()
+def _clean(series: pd.Series) -> pd.Series:
 
-    # ── Build inter-vendor graph ───────────────────────────────────────────────
-    # Edges connect DIFFERENT vendors that share an identifier.
-    # Edge weight accumulates per shared attribute.
+    return (
+        series
+        .fillna("unknown")
+        .astype(str)
+        .str.strip()
+        .str.lower()
+    )
+
+
+# =============================================================================
+# CACHE KEY
+# =============================================================================
+
+def _cache_key(df: pd.DataFrame) -> str:
+
+    cols = [
+
+        c for c in [
+
+            "vendor_id",
+            "bank_account",
+            "gst_number",
+            "vendor_address"
+
+        ]
+
+        if c in df.columns
+    ]
+
+    raw = (
+        df[cols]
+        .fillna("")
+        .astype(str)
+        .values
+        .tobytes()
+    )
+
+    return hashlib.md5(raw).hexdigest()
+
+
+# =============================================================================
+# BUILD GRAPH
+# =============================================================================
+
+def _build_graph(df: pd.DataFrame) -> nx.Graph:
+
     G = nx.Graph()
 
-    def _add_edges(group_col: str, weight: float):
-        groups = df.groupby(group_col)["vendor_id"].unique()
-        for identifier, vendors in groups.items():
-            # Skip "unknown" identifiers — they would falsely connect everyone
-            if str(identifier).lower() in ("unknown", "nan", "", "none"):
-                continue
-            vendors = [v for v in set(vendors)]
+    # -------------------------------------------------------------------------
+    # ADD ALL VENDORS
+    # -------------------------------------------------------------------------
+
+    for vendor in df["vendor_id"].unique():
+
+        G.add_node(vendor)
+
+    # -------------------------------------------------------------------------
+    # EDGE CREATION
+    # -------------------------------------------------------------------------
+
+    def _add_edges(column: str, weight: float):
+
+        if column not in df.columns:
+            return
+
+        grouped = (
+
+            df[
+                ~df[column].apply(_is_invalid)
+            ]
+
+            .groupby(column)["vendor_id"]
+
+            .unique()
+        )
+
+        for _, vendors in grouped.items():
+
+            vendors = list(set(vendors))
+
+            # -------------------------------------------------------------
+            # MINIMUM SHARING
+            # -------------------------------------------------------------
+
             if len(vendors) < 2:
                 continue
+
+            # -------------------------------------------------------------
+            # PREVENT GRAPH EXPLOSION
+            # Ignore overly common metadata
+            # -------------------------------------------------------------
+
+            if len(vendors) > 4:
+                continue
+
+            # -------------------------------------------------------------
+            # CREATE EDGES
+            # -------------------------------------------------------------
+
             for i in range(len(vendors)):
+
                 for j in range(i + 1, len(vendors)):
-                    v1, v2 = vendors[i], vendors[j]
-                    if v1 == v2:          # no self-loops
+
+                    v1 = vendors[i]
+                    v2 = vendors[j]
+
+                    if v1 == v2:
                         continue
+
                     if G.has_edge(v1, v2):
+
                         G[v1][v2]["weight"] += weight
+
                     else:
-                        G.add_edge(v1, v2, weight=weight)
 
-    _add_edges("bank_account",   weight=3.0)   # strongest signal
-    _add_edges("gst_number",     weight=2.5)   # strong signal
-    _add_edges("vendor_address", weight=1.5)   # moderate signal
+                        G.add_edge(
+                            v1,
+                            v2,
+                            weight=weight
+                        )
 
-    # ── Per-vendor shared-identifier flags ────────────────────────────────────
-    def _shared_flag(group_col: str) -> pd.Series:
-        counts = df.groupby(group_col)["vendor_id"].transform("nunique")
-        # Only flag when the identifier is not "unknown"
-        valid  = ~df[group_col].str.lower().isin(["unknown", "nan", "", "none"])
-        return ((counts > 1) & valid).astype(int)
+    # -------------------------------------------------------------------------
+    # BUILD RELATIONSHIPS
+    # -------------------------------------------------------------------------
 
-    df["shared_bank_flag"]    = _shared_flag("bank_account")
-    df["shared_gst_flag"]     = _shared_flag("gst_number")
-    df["shared_address_flag"] = _shared_flag("vendor_address")
+    _add_edges(
+        "bank_account",
+        GRAPH_WEIGHT_BANK
+    )
 
-    # ── Graph metrics ─────────────────────────────────────────────────────────
-    all_vendors = df["vendor_id"].unique().tolist()
+    _add_edges(
+        "gst_number",
+        GRAPH_WEIGHT_GST
+    )
 
-    # Add isolated nodes so every vendor gets a metric
-    for v in all_vendors:
-        if v not in G:
-            G.add_node(v)
+    _add_edges(
+        "vendor_address",
+        GRAPH_WEIGHT_ADDRESS
+    )
+
+    return G
+
+
+# =============================================================================
+# COMPUTE METRICS
+# =============================================================================
+
+def _compute_metrics(G: nx.Graph) -> dict:
 
     degree_dict = dict(G.degree())
 
-    # Cluster membership
-    cluster_map: dict = {}
+    # -------------------------------------------------------------------------
+    # CLUSTERS
+    # -------------------------------------------------------------------------
+
+    cluster_map = {}
+
     for component in nx.connected_components(G):
+
         size = len(component)
-        for vendor in component:
-            cluster_map[vendor] = size
 
-    # Centrality — only meaningful when graph has edges
+        for node in component:
+
+            cluster_map[node] = size
+
+    # -------------------------------------------------------------------------
+    # PAGERANK
+    # -------------------------------------------------------------------------
+
     if G.number_of_edges() > 0:
-        pagerank_dict     = nx.pagerank(G, weight="weight", alpha=0.85)
-        betweenness_dict  = nx.betweenness_centrality(G, normalized=True)
+
+        try:
+
+            pagerank = nx.pagerank(
+                G,
+                weight="weight",
+                alpha=0.85,
+                max_iter=100
+            )
+
+        except nx.PowerIterationFailedConvergence:
+
+            pagerank = {
+
+                node: 1.0 / max(
+                    G.number_of_nodes(),
+                    1
+                )
+
+                for node in G.nodes()
+            }
+
     else:
-        pagerank_dict    = {v: 1.0 / max(len(all_vendors), 1) for v in all_vendors}
-        betweenness_dict = {v: 0.0 for v in all_vendors}
 
-    # Map back to DataFrame rows
-    df["vendor_degree"]          = df["vendor_id"].map(degree_dict).fillna(0).astype(float)
-    df["cluster_size"]           = df["vendor_id"].map(cluster_map).fillna(1).astype(float)
-    df["pagerank"]               = df["vendor_id"].map(pagerank_dict).fillna(0.0).astype(float)
-    df["betweenness_centrality"] = df["vendor_id"].map(betweenness_dict).fillna(0.0).astype(float)
+        pagerank = {
 
-    # ── Shell vendor flag ─────────────────────────────────────────────────────
-    # Requires at least 2 of the 3 shared-identifier signals AND graph degree >= 1
-    df["shell_vendor_flag"] = (
-        (df["shared_bank_flag"] + df["shared_gst_flag"] + df["shared_address_flag"] >= 2) |
-        ((df["shared_bank_flag"] == 1) & (df["vendor_degree"] >= 2))
-    ).astype(int)
+            node: 0.0
+            for node in G.nodes()
+        }
 
-    # ── co_occurrence_score on 0-100 scale ────────────────────────────────────
-    # Combines degree, cluster size, and centrality into a single 0-100 signal.
-    # Each component is normalized before combining so no single metric dominates.
-    max_degree  = float(df["vendor_degree"].max())  if df["vendor_degree"].max()  > 0 else 1.0
-    max_cluster = float(df["cluster_size"].max())   if df["cluster_size"].max()   > 0 else 1.0
-    max_pr      = float(df["pagerank"].max())        if df["pagerank"].max()        > 0 else 1.0
-    max_bw      = float(df["betweenness_centrality"].max()) if df["betweenness_centrality"].max() > 0 else 1.0
+    # -------------------------------------------------------------------------
+    # NORMALIZATION CONSTANTS
+    # -------------------------------------------------------------------------
 
-    degree_norm  = (df["vendor_degree"]          / max_degree)  * 40.0
-    cluster_norm = (df["cluster_size"]           / max_cluster) * 20.0
-    pr_norm      = (df["pagerank"]               / max_pr)      * 25.0
-    bw_norm      = (df["betweenness_centrality"] / max_bw)      * 15.0
+    max_degree = max(
+        max(degree_dict.values(), default=0),
+        1
+    )
 
-    df["co_occurrence_score"] = (
-        degree_norm + cluster_norm + pr_norm + bw_norm
-    ).clip(0, 100).fillna(0.0)
+    max_cluster = max(
+        max(cluster_map.values(), default=1),
+        1
+    )
+
+    max_pr = max(
+        max(pagerank.values(), default=1e-9),
+        1e-9
+    )
+
+    # -------------------------------------------------------------------------
+    # METRICS
+    # -------------------------------------------------------------------------
+
+    metrics = {}
+
+    for node in G.nodes():
+
+        degree = float(
+            degree_dict.get(node, 0)
+        )
+
+        cluster_size = float(
+            cluster_map.get(node, 1)
+        )
+
+        pr = float(
+            pagerank.get(node, 0.0)
+        )
+
+        # -----------------------------------------------------------------
+        # CO-OCCURRENCE SCORE
+        # -----------------------------------------------------------------
+
+        degree_score = (
+            (degree / max_degree) * 40.0
+        )
+
+        cluster_score = (
+            (cluster_size / max_cluster) * 30.0
+        )
+
+        pagerank_score = (
+            (pr / max_pr) * 30.0
+        )
+
+        co_occurrence_score = (
+
+            degree_score
+            +
+            cluster_score
+            +
+            pagerank_score
+
+        )
+
+        co_occurrence_score = float(
+
+            np.clip(
+                co_occurrence_score,
+                0,
+                100
+            )
+        )
+
+        # -----------------------------------------------------------------
+        # STRICT SHELL VENDOR DETECTION
+        # -----------------------------------------------------------------
+
+        shell_vendor_flag = int(
+
+            (
+                degree >= 4
+            )
+
+            and
+
+            (
+                cluster_size >= 4
+            )
+
+            and
+
+            (
+                pr >= 0.12
+            )
+
+            and
+
+            (
+                co_occurrence_score >= 70
+            )
+
+        )
+
+        # -----------------------------------------------------------------
+        # STORE
+        # -----------------------------------------------------------------
+
+        metrics[node] = {
+
+            "vendor_degree":
+                round(degree, 2),
+
+            "cluster_size":
+                round(cluster_size, 2),
+
+            "pagerank":
+                round(pr, 6),
+
+            "shell_vendor_flag":
+                shell_vendor_flag,
+
+            "co_occurrence_score":
+                round(co_occurrence_score, 2),
+        }
+
+    return metrics
+
+
+# =============================================================================
+# PUBLIC API
+# =============================================================================
+
+def enrich_with_graph_features(
+    df: pd.DataFrame
+) -> pd.DataFrame:
+
+    df = df.copy()
+
+    # -------------------------------------------------------------------------
+    # CLEAR CACHE TEMPORARILY
+    # -------------------------------------------------------------------------
+
+    _GRAPH_CACHE.clear()
+
+    # -------------------------------------------------------------------------
+    # REQUIRED COLUMNS
+    # -------------------------------------------------------------------------
+
+    required_columns = [
+
+        "vendor_id",
+        "bank_account",
+        "gst_number",
+        "vendor_address",
+    ]
+
+    for col in required_columns:
+
+        if col not in df.columns:
+
+            df[col] = "unknown"
+
+        df[col] = _clean(df[col])
+
+    # -------------------------------------------------------------------------
+    # CACHE KEY
+    # -------------------------------------------------------------------------
+
+    key = _cache_key(df)
+
+    # -------------------------------------------------------------------------
+    # BUILD GRAPH
+    # -------------------------------------------------------------------------
+
+    if key not in _GRAPH_CACHE:
+
+        log.info(
+            "[graph_engine] Building graph..."
+        )
+
+        G = _build_graph(df)
+
+        _GRAPH_CACHE[key] = (
+            _compute_metrics(G)
+        )
+
+    metrics = _GRAPH_CACHE[key]
+
+    # -------------------------------------------------------------------------
+    # MAP METRICS
+    # -------------------------------------------------------------------------
+
+    metric_columns = [
+
+        "vendor_degree",
+        "cluster_size",
+        "pagerank",
+        "shell_vendor_flag",
+        "co_occurrence_score",
+    ]
+
+    for feature in metric_columns:
+
+        df[feature] = df["vendor_id"].map(
+
+            lambda v, f=feature:
+
+                metrics.get(v, {}).get(f, 0)
+
+        ).fillna(0)
+
+    # -------------------------------------------------------------------------
+    # SHARED FLAGS
+    # -------------------------------------------------------------------------
+
+    def _shared_flag(column: str):
+
+        if column not in df.columns:
+
+            return pd.Series(
+                0,
+                index=df.index
+            )
+
+        valid = (
+            ~df[column].apply(_is_invalid)
+        )
+
+        counts = (
+
+            df.groupby(column)["vendor_id"]
+
+            .transform("nunique")
+        )
+
+        return (
+
+            (counts > 1)
+
+            &
+
+            (counts <= 4)
+
+            &
+
+            valid
+
+        ).astype(int)
+
+    df["shared_bank_flag"] = _shared_flag(
+        "bank_account"
+    )
+
+    df["shared_gst_flag"] = _shared_flag(
+        "gst_number"
+    )
+
+    df["shared_address_flag"] = _shared_flag(
+        "vendor_address"
+    )
+
+    # -------------------------------------------------------------------------
+    # FINAL CLEANING
+    # -------------------------------------------------------------------------
+
+    graph_columns = [
+
+        "vendor_degree",
+        "cluster_size",
+        "pagerank",
+
+        "shell_vendor_flag",
+        "co_occurrence_score",
+
+        "shared_bank_flag",
+        "shared_gst_flag",
+        "shared_address_flag",
+    ]
+
+    for col in graph_columns:
+
+        df[col] = (
+
+            pd.to_numeric(
+                df[col],
+                errors="coerce"
+            )
+
+            .fillna(0)
+        )
 
     return df
